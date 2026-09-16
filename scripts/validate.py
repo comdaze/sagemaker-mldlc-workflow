@@ -124,6 +124,85 @@ def check_mcp_extras(path: Path) -> None:
             fail(f"mcp.json: server {server_name!r} is missing the required 'type' field")
 
 
+def check_power_md(path: Path) -> bool:
+    """Cross-check the legacy POWER.md manifest against plugin.json.
+
+    Both manifests may be present, and Kiro renders the power page from POWER.md
+    while loading skills from the plugin format. That split is useful and it is
+    also a drift hazard: the same power can advertise two different names, two
+    descriptions and two authors, and nothing would notice.
+
+    Measured on 2026-09-16 by importing a repository carrying both: the page
+    title, the `by` line and the keyword tags all came from POWER.md -- the tags
+    were rendered as `machine learning` (POWER.md) rather than
+    `machine-learning` (plugin.json), which is what settles it -- while the five
+    skills still loaded from skills/. So POWER.md decides what a user sees.
+
+    Returns True when POWER.md exists, so the caller can say so.
+    """
+    if not path.exists():
+        return False
+
+    front = parse_frontmatter(path.read_text(encoding="utf-8"))
+    if front is None:
+        fail("POWER.md: no YAML frontmatter -- Kiro reads the manifest from there")
+        return True
+
+    for field in ("name", "displayName", "description", "keywords", "author"):
+        if field not in front:
+            fail(f"POWER.md: frontmatter is missing {field!r}")
+
+    # The legacy reader wants a plain string here. An Agent Plugins-shaped
+    # object validates against that schema and renders as an empty `by` line,
+    # which looked like a Kiro bug until the two shapes were compared.
+    author = front.get("author")
+    if author is not None and not isinstance(author, str):
+        fail(
+            f"POWER.md: author must be a string, not {type(author).__name__} -- "
+            "the object form is plugin.json's shape and renders blank"
+        )
+
+    plugin = ROOT / "plugin.json"
+    if not plugin.exists():
+        return True
+    doc = json.loads(plugin.read_text(encoding="utf-8"))
+
+    if front.get("name") != doc.get("name"):
+        fail(
+            f"POWER.md name {front.get('name')!r} != plugin.json name "
+            f"{doc.get('name')!r} -- one power, one identity"
+        )
+
+    p_author = doc.get("author")
+    p_author_name = p_author.get("name") if isinstance(p_author, dict) else p_author
+    if isinstance(author, str) and p_author_name and author != p_author_name:
+        fail(
+            f"POWER.md author {author!r} != plugin.json author {p_author_name!r} -- "
+            "the page shows POWER.md's, so they must agree"
+        )
+
+    # Descriptions are prose and will not be identical. Require they open the
+    # same way, which catches a rewrite of one and not the other while allowing
+    # each to end differently.
+    a = (front.get("description") or "").strip()[:60]
+    b = (doc.get("description") or "").strip()[:60]
+    if a and b and a != b:
+        warn(
+            "POWER.md and plugin.json descriptions diverge in their first 60 "
+            "characters -- the page shows POWER.md's"
+        )
+
+    steering = ROOT / "steering"
+    if steering.exists():
+        for f in sorted(steering.glob("*.md")):
+            if parse_frontmatter(f.read_text(encoding="utf-8")) is not None:
+                warn(
+                    f"steering/{f.name} carries frontmatter; the official powers' "
+                    "steering files are plain markdown"
+                )
+    return True
+
+
 def parse_frontmatter(text: str) -> dict | None:
     match = re.match(r"^---\r?\n(.*?)\r?\n---", text, re.S)
     if not match:
@@ -247,6 +326,7 @@ def main() -> int:
 
     upstream_count, owned_count = check_skills()
     check_no_escaping_paths()
+    has_power_md = check_power_md(ROOT / "POWER.md")
 
     for w in warnings:
         print(f"WARN  {w}")
@@ -274,6 +354,8 @@ def main() -> int:
         f"OK  {manifests} {upstream_count + owned_count} skills "
         f"{ownership}conform to Agent Plugins 1.0.0.{suffix}"
     )
+    if has_power_md:
+        print("OK  POWER.md agrees with plugin.json (Kiro renders the page from POWER.md).")
     return 0
 
 
