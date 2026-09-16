@@ -220,9 +220,19 @@ task before anything else.
 
 ### Check the plan, do not just write it
 
+The linter ships beside this skill, and the path depends on where the power lives.
+Resolve it rather than guessing — a command that does not run teaches a reader to
+skip the next one:
+
 ```bash
-python3 scripts/plan-lint.py PLAN.md
+LINT=$(ls ~/.kiro/powers/installed/*/skills/ml-planning/scripts/plan-lint.py \
+       ./skills/ml-planning/scripts/plan-lint.py 2>/dev/null | head -1)
+python3 "$LINT" PLAN.md
 ```
+
+The first pattern finds it in an installed power, the second in a clone of the
+repository. If neither matches, say the linter could not be located instead of
+reporting a plan as checked.
 
 Run it after every edit. It checks contiguous numbering, exactly one state marker
 per task, at most one `[-]`, no task `[x]` above an unsettled one, `[S]` carrying a
