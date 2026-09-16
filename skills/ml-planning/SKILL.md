@@ -39,6 +39,34 @@ If you read nothing else in this file, do these. Each is expanded below.
 Skipping 1 or 4 is the failure this list exists to prevent: a plan that never
 recorded which partition it targeted, or a run that left no resumable state.
 
+## If you were asked to demonstrate this power rather than to build something
+
+Clicking **Try power** opens a session with a fixed prompt asking for an overview
+and a simple example. Answer it in a few lines, then **ask** — do not manufacture the
+example.
+
+The temptation is to look at whatever data is in the workspace and produce a
+convincing walkthrough: a target column, a prediction time, an allowed and forbidden
+feature list. A trial run did exactly that, inventing a `D-1` prediction time and a
+six-column denylist from a CSV header alone. Everything in it was plausible and none
+of it was established, which is the failure this power exists to prevent, performed
+by the power itself. A demonstration is not an exemption from its own rules.
+
+So the shortest useful answer is:
+
+- **One paragraph** on what the workflow does and where its edges are, and which
+  skills exist versus are still planned.
+- **The environment facts**, because those are real and cheap: caller ARN for the
+  partition, installed SDK version. They cost two commands and they are not guesses.
+- **Then the questions that actually gate the work**, and stop. What is being
+  predicted; at what moment the prediction is made; and what decision consumes it.
+  Three answers turn a fabricated walkthrough into a real plan.
+
+If the workspace does hold data, reading its header to ask a *sharper* question is
+good — "there are twelve `实时*` columns here; are any of them known at prediction
+time?" is worth more than a generic prompt. Reading it to assert what the target is,
+is not. The difference is whether the output is a question or a claim.
+
 ## Step 1: Establish the partition, the SDK, and the target
 
 Three facts gate everything, and two of them are cheap enough that guessing is
