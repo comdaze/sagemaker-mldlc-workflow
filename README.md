@@ -146,7 +146,7 @@ own constraints rather than presenting them as equally binding:
 | Class | What it means | Examples |
 |---|---|---|
 | **Refusal** | honouring it produces code that declines to proceed, and a test can prove the refusal fires | the quality gate does not register a failing model · the leakage screen refuses a correlation above its declared bound · the SDK version gate stops on a mismatch · publish rejects an empty or `"null"` version id · the field-name denylist runs before schema validation · `plan-lint.py` on `PLAN.md` |
-| **Accounting** | it cannot refuse, but a missing decision becomes visible | `PARTITION` / `SDK` / `LAST_DONE` in the plan · `features.assumed[].reason` · `[S]` tasks carrying `skipped: <why>` · a declared serving mode |
+| **Accounting** | it cannot refuse, but a missing decision becomes visible | `PARTITION` / `SDK` / `LAST_DONE` in the plan · `features.assumed[].reason` · `[S]` tasks carrying `skipped: <why>` · a declared serving mode · a gate's refusal carrying the command that fixes it · a substitution recorded under "Constraints traded away" |
 | **Advice** | nothing checks it; it holds while someone remembers | "prefer the least runtime mode you can get away with" · the five questions in `dont-rebuild-what-you-can-read` · this README staying in step with the skills |
 
 The third column is the honest one. It comes from an audit of this power's

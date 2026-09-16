@@ -49,6 +49,34 @@ from sagemaker.sklearn.estimator import SKLearn       ModuleNotFoundError
 `<3` deliberately. v2 is frozen rather than retired — its last new minor was
 2.257.0 in February 2026, patches only since — so nothing new lands there.
 
+### The refusal must carry its own remedy
+
+A gate that fires and then stops at "the version does not match" is technically
+working and practically useless. The message must contain **the command that fixes
+it**, resolved against what you actually found, not a general instruction to
+upgrade:
+
+```
+Environment gate failed.
+  declared   spec.runtime.sdk = ">=3.22,<4"
+  installed  2.256.1
+
+  Fix:  pip install -U 'sagemaker>=3.22,<4'
+
+  Or, to keep v2 deliberately, change the contract to "<3" and accept that this
+  power's code templates are written for v3 — the two are not interchangeable, and
+  the v2 import paths above are the reason.
+```
+
+Three properties make that worth the extra lines. It names **both** legitimate
+resolutions, because pinning v2 on purpose is a real choice and not an error. The
+command is complete and copy-pasteable, with the range taken from the contract
+rather than invented. And it says what changing the contract costs, so the cheaper
+option is not silently the more attractive one.
+
+The same shape applies to every gate in this power: state what was declared, what
+was found, and the shortest path from one to the other.
+
 ### v3 canonical paths
 
 Use these, not the shims.
