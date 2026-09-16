@@ -149,6 +149,14 @@ own constraints rather than presenting them as equally binding:
 | **Accounting** | it cannot refuse, but a missing decision becomes visible | `PARTITION` / `SDK` / `LAST_DONE` in the plan · `features.assumed[].reason` · `[S]` tasks carrying `skipped: <why>` · a declared serving mode · a gate's refusal carrying the command that fixes it · a substitution recorded under "Constraints traded away" |
 | **Advice** | nothing checks it; it holds while someone remembers | "prefer the least runtime mode you can get away with" · the five questions in `dont-rebuild-what-you-can-read` · this README staying in step with the skills |
 
+**And one class below all three: whether a skill loads at all.** Measured at roughly
+one plain request in two, with the same model and description (see
+[Install](#importing-is-not-enough--add-a-steering-line)). Nothing inside a skill
+affects it — content is only reachable once the skill is in context, so every row of
+the table above is conditional on activation. A project steering line is the only
+thing observed to make it deterministic, which is why that is an install step rather
+than a tip.
+
 The third column is the honest one. It comes from an audit of this power's
 predecessor on a real end-to-end run: **constraints written as a refusal survived
 into the artefacts; constraints that stayed prose either held by luck or went
@@ -217,6 +225,37 @@ Requires Kiro IDE, Kiro on the web, or Kiro CLI v3+. Choose **Vibe** when Kiro a
 
 Kiro **copies** a power into `~/.kiro/powers/installed/` at import time, so changes
 to your clone need a re-import to take effect.
+
+### Importing is not enough — add a steering line
+
+**Measured, not assumed.** Across five trial runs on one machine with one model
+(GPT-5.6 Terra, vibe mode, identical prompt), a plain request activated
+`ml-planning` **twice out of four times**. On the two misses a global skill in
+`~/.kiro/skills/` won the match instead. Rewording the description between attempts
+did not fix it: the run immediately after the description was widened still missed.
+
+Skill activation is a model judgement, not a rule, and every globally installed
+skill competes for the same match. So make it deterministic for the projects where
+it matters, with a `.kiro/steering/ml-workflow.md` in the project:
+
+```markdown
+---
+inclusion: always
+---
+
+Machine-learning work in this repository goes through the `sagemaker-ml-workflow`
+power. Start with `ml-planning`: resolve the partition and SDK version before
+writing code, and keep `PLAN.md` current.
+```
+
+Steering files are loaded unconditionally rather than matched, so this removes the
+coin flip. This is not a quirk of this power — AWS's own Agent Toolkit documents the
+same requirement for its skills.
+
+Two other reliable ways in, when a steering file is not wanted: click **Try power**
+on the power's page, which engages it for that session, or name the skill in the
+request ("use ml-planning to …"). The trial's one Try-power run activated correctly
+and passed every criterion, including the two that plain prompts had failed.
 
 ## Validate
 
