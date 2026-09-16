@@ -1,6 +1,6 @@
 ---
 name: ml-planning
-description: Plans and orchestrates machine-learning work on Amazon SageMaker - framing the problem, establishing the partition and what SageMaker actually offers there, picking a scope preset, and writing a checkable PLAN.md. Activate alongside any other skill in this power whenever the request involves data processing, training, tuning, evaluation, release, batch or real-time inference. Also activate to resume or amend an existing plan, or to run a single stage on its own.
+description: Plans and orchestrates any machine-learning or deep-learning build - framing the target and the prediction time, establishing the environment before writing code, choosing a scope, and writing a checkable PLAN.md. Activate at the START of any request to build, train, retrain, evaluate, release, deploy or serve a model, or to build a prediction, forecasting, classification or scoring pipeline - including when the request names no cloud, no service and no framework, and including when it sounds like a single small task. Also activate alongside any other skill in this power, to resume or amend an existing plan, or to run one stage on its own. SageMaker is the execution target; the planning applies before any of it is chosen.
 ---
 
 # Planning ML work on SageMaker
@@ -17,26 +17,24 @@ a custom container.
 foundation model, say so and point at the `sagemaker-ai` power or AWS's own
 `aws-ai-ml` skill rather than bending this plan around it.
 
-## Principles
+## Do these four things before writing any code
 
-- **One question at a time**, and only questions that decide a branch.
-- **Never ask for something your own next action would produce.** See "Asking
-  well" below — this is the rule most often broken, and it stalls a plan on a
-  question nobody can answer.
-- **Every blocking question carries an executable default.**
-- **Surface the partition constraint before planning, not after.** Read
-  `references/china-baseline.md` and resolve it in step 1.
-- **Do not plan capabilities no skill here covers.** Say plainly when something is
-  out of scope; a plan that promises what nothing implements is worse than a short
-  plan.
-- **Do not ask what the repository already answers.** Check for an existing
-  algorithm contract, dataset manifest, or pipeline definition first.
-- **Keep knowledge and state apart.** These skills and the algorithm contract are
-  *knowledge* — how the work is done, changing only when someone revises them.
-  `PLAN.md` and everything SageMaker reports are *state* — where the work got to.
-  Never copy state into a contract, and never treat a stale plan as a rule. The
-  same split appears one layer down in `dont-rebuild-what-you-can-read`: mirror
-  invariants, read mutable state live.
+If you read nothing else in this file, do these. Each is expanded below.
+
+1. **Resolve the environment.** `aws sts get-caller-identity --query Arn` for the
+   partition — never infer it from a region name — and
+   `importlib.metadata.version("sagemaker")` for the SDK. The SDK version is a gate:
+   if it does not satisfy the contract, stop and say so with the fix command.
+2. **Name the prediction time.** What moment is the prediction made at? Everything
+   `leakage-guard` decides depends on it, and it is a declaration, not a discovery.
+3. **Pick a scope preset**, so the size of the run is a decision rather than an
+   accident.
+4. **Write `PLAN.md` and run `plan-lint.py` on it.** A run with no plan file has no
+   state a later session can resume from, and this power's linter is the only thing
+   that checks the plan is coherent.
+
+Skipping 1 or 4 is the failure this list exists to prevent: a plan that never
+recorded which partition it targeted, or a run that left no resumable state.
 
 ## Step 1: Establish the partition, the SDK, and the target
 
@@ -196,6 +194,27 @@ naming a skill that exists in this power. That last check is the mechanical form
 of the rule against planning capabilities nothing implements. The linter refuses
 to run when it cannot locate `skills/` rather than skipping that check quietly — a
 checker reporting success with its main check skipped is worse than no checker.
+
+## Principles
+
+- **One question at a time**, and only questions that decide a branch.
+- **Never ask for something your own next action would produce.** See "Asking
+  well" below — this is the rule most often broken, and it stalls a plan on a
+  question nobody can answer.
+- **Every blocking question carries an executable default.**
+- **Surface the partition constraint before planning, not after.** Read
+  `references/china-baseline.md` and resolve it in step 1.
+- **Do not plan capabilities no skill here covers.** Say plainly when something is
+  out of scope; a plan that promises what nothing implements is worse than a short
+  plan.
+- **Do not ask what the repository already answers.** Check for an existing
+  algorithm contract, dataset manifest, or pipeline definition first.
+- **Keep knowledge and state apart.** These skills and the algorithm contract are
+  *knowledge* — how the work is done, changing only when someone revises them.
+  `PLAN.md` and everything SageMaker reports are *state* — where the work got to.
+  Never copy state into a contract, and never treat a stale plan as a rule. The
+  same split appears one layer down in `dont-rebuild-what-you-can-read`: mirror
+  invariants, read mutable state live.
 
 ## Asking well: produce it yourself, or offer a default
 
