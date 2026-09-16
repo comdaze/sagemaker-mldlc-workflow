@@ -248,10 +248,30 @@ Machine-learning work in this repository goes through the `sagemaker-ml-workflow
 power. Start with its `ml-planning` skill and follow the workflow it defines.
 ```
 
-Put that at `.kiro/steering/ml-workflow.md` in the project. Steering files are loaded
-unconditionally rather than matched, which is why this removes the coin flip. This is
-not a quirk of this power — AWS's own Agent Toolkit documents the same requirement for
-its skills.
+Put that at `.kiro/steering/ml-workflow.md` in the project, or copy the one this
+power ships:
+
+```bash
+mkdir -p .kiro/steering
+cp ~/.kiro/powers/installed/sagemaker-ml-workflow/steering/getting-started.md \
+   .kiro/steering/ml-workflow.md
+```
+
+Steering files are loaded unconditionally rather than matched, which is why this
+removes the coin flip. This is not a quirk of this power — AWS's own Agent Toolkit
+documents the same requirement for its skills. Kiro also reads `~/.kiro/steering/`,
+listed as **Global** in its steering panel, so one file there covers every project at
+the cost of applying to projects that are not about machine learning.
+
+**The `steering/` directory this power ships does not fire on its own.** It was
+measured: with `POWER.md` and `steering/getting-started.md` both installed, an
+activation reported that it received no `POWER.md` body and no steering guide, and
+fell back to reading the skills. `POWER.md` supplies the power page — the title, the
+`by` line, the keyword tags, the description — and `steering/` is the copy-source for
+the command above. Neither replaces the project file. The twelve official powers that
+ship `steering/` are pure-legacy, with no `plugin.json`; whether that is what makes
+the difference was not tested, because finding out costs the cross-harness
+portability the plugin format buys.
 
 Two other reliable ways in, when a steering file is not wanted: click **Try power** on
 the power's page, which engages it for that session, or name the skill in the request
