@@ -226,18 +226,35 @@ Requires Kiro IDE, Kiro on the web, or Kiro CLI v3+. Choose **Vibe** when Kiro a
 Kiro **copies** a power into `~/.kiro/powers/installed/` at import time, so changes
 to your clone need a re-import to take effect.
 
-### Importing is not enough — add a steering line
+### Importing is not enough — pick one of the deterministic ways in
 
-**Measured, not assumed.** On one machine with one model (GPT-5.6 Terra, vibe mode,
-identical prompt), a plain request activated `ml-planning` **twice out of four
-times**. On the two misses a global skill in `~/.kiro/skills/` won the match
-instead. Rewording the description did not fix it: the run immediately after the
-description was widened still missed.
+Skill activation is a model judgement, not a rule. Measured on one machine with one
+model (GPT-5.6 Terra, vibe mode, identical prompt), a plain request activated
+`ml-planning` **twice out of four times**; on the two misses a global skill in
+`~/.kiro/skills/` won the match instead. Rewording the description did not fix it —
+the run immediately after the description was widened still missed.
 
-Adding a project steering file took it to **three out of three**, and the steering
-used for that test is a pointer and nothing more — it names no partition, no SDK, no
-`PLAN.md`. The skill still did all the work; the file only made sure the skill was
-there to do it.
+Four ways in, and three of them do not depend on that judgement:
+
+| Way in | Setup | Per use | Reliability |
+|---|---|---|---|
+| **Type `/ml-planning`** | none | four keystrokes | by name, no matching |
+| **Project steering file** | one file, once | none | **measured 3/3** |
+| **Try power** button | none | one click per session | engages the power, then asks for an overview |
+| Plain request | none | none | **about 1 in 2** |
+
+**`/ml-planning` is the cheapest.** Importing the power registers all five skills as
+slash commands in the composer, each with its description, so typing `/ml` narrows to
+one — none of the thirteen global skills on the test machine starts with those
+letters, and none collides with a name in this power. It addresses the failure
+directly: the same crowded match pool that loses the coin flip has no effect when the
+skill is called by name.
+
+Its limit is that the user has to know which skill to call. For the planner that is
+fine — `ml-planning` is the answer to "I do not know which one" — but picking among
+five puts a decision on the person who should not have to make it. So the slash
+command is the zero-setup entry, and the steering file is what removes even those four
+keystrokes.
 
 ```markdown
 ---
@@ -248,8 +265,7 @@ Machine-learning work in this repository goes through the `sagemaker-ml-workflow
 power. Start with its `ml-planning` skill and follow the workflow it defines.
 ```
 
-Put that at `.kiro/steering/ml-workflow.md` in the project, or copy the one this
-power ships:
+Put that at `.kiro/steering/ml-workflow.md`, or copy the one this power ships:
 
 ```bash
 mkdir -p .kiro/steering
@@ -273,9 +289,11 @@ ship `steering/` are pure-legacy, with no `plugin.json`; whether that is what ma
 the difference was not tested, because finding out costs the cross-harness
 portability the plugin format buys.
 
-Two other reliable ways in, when a steering file is not wanted: click **Try power** on
-the power's page, which engages it for that session, or name the skill in the request
-("use ml-planning to …").
+**Two manifests, two audiences.** The power page renders `POWER.md`; the activation
+result an agent receives carries `plugin.json`'s description instead — established by
+the fact that the activation text contains a sentence only `plugin.json` has and omits
+the setup line only `POWER.md` has. So page text reaches the human and skill text
+reaches the agent, which is why the setup prompt also lives in `ml-planning` itself.
 
 ## Validate
 

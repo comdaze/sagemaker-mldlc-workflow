@@ -1,7 +1,7 @@
 ---
 name: "sagemaker-ml-workflow"
 displayName: "SageMaker ML Workflow"
-description: "SETUP: copy steering/getting-started.md into .kiro/steering/ - command below. An AI-coding-driven ML development workflow for Amazon SageMaker: a planner that composes a run from named stages, plus one skill per stage that can also be called on its own. Traditional machine learning and deep learning - tabular regression and classification, time-series forecasting, framework or custom-container training - and deliberately not large-model fine-tuning. The AWS China partition is the verified baseline.   SETUP COMMAND, run it in the project root:   mkdir -p .kiro/steering && cp ~/.kiro/powers/installed/sagemaker-ml-workflow/steering/getting-started.md .kiro/steering/ml-workflow.md   Or click Try power above to engage this power for one session instead. Why it is needed: skill activation is a model judgement, not a rule. Measured on one machine with one model and an identical prompt, a plain request engaged the planner in two of four attempts without that file, and three of three with it."
+description: "START HERE: type /ml-planning in the composer, or add a steering file - both below. An AI-coding-driven ML development workflow for Amazon SageMaker: a planner that composes a run from named stages, plus one skill per stage that can also be called on its own. Traditional machine learning and deep learning - tabular regression and classification, time-series forecasting, framework or custom-container training - and deliberately not large-model fine-tuning. The AWS China partition is the verified baseline.   WHY THERE IS A SETUP STEP: skill activation is a model judgement, not a rule, and a plain request engaged the planner in only two of four attempts on the machine this was measured on. Calling it by name with /ml-planning skips the matching entirely and needs no setup. To remove even that, put a one-line steering file in the project - it is loaded unconditionally, and measured three times out of three:   mkdir -p .kiro/steering && cp ~/.kiro/powers/installed/sagemaker-ml-workflow/steering/getting-started.md .kiro/steering/ml-workflow.md   Clicking Try power engages this power for a single session instead."
 keywords: ["sagemaker", "machine learning", "deep learning", "mlops"]
 author: "Sean Yang"
 ---
@@ -60,8 +60,19 @@ for the same match. Measured on one machine with one model and an identical prom
 plain request engaged `ml-planning` in **two of four** attempts with the power merely
 imported, and in **three of three** once the project carried a steering file.
 
-So add one file per project. It is a pointer — it names no partition, no SDK version,
-no `PLAN.md`, and the skill still does all the work:
+**The cheapest fix costs nothing to set up.** Importing this power registers its five
+skills as slash commands in the composer, so start a run by typing:
+
+```
+/ml-planning
+```
+
+Typing `/ml` narrows to that one. Calling a skill by name skips matching altogether,
+which is exactly the step that loses the coin flip.
+
+Its limit is that you have to know which of the five to call. `ml-planning` is the
+answer whenever you do not — it is the planner and decides the rest — but if you would
+rather not think about it at all, add one file per project instead:
 
 ```bash
 mkdir -p .kiro/steering
@@ -69,12 +80,13 @@ cp ~/.kiro/powers/installed/sagemaker-ml-workflow/steering/getting-started.md \
    .kiro/steering/ml-workflow.md
 ```
 
-`~/.kiro/steering/` works too, listed as **Global** in Kiro's steering panel, and
-covers every project at the cost of applying to projects that are not about machine
-learning.
+That file is a pointer — it names no partition, no SDK version, no `PLAN.md`, and the
+skill still does all the work. Steering is loaded unconditionally rather than matched,
+which is why it removes the guesswork. `~/.kiro/steering/` works too, listed as
+**Global** in Kiro's steering panel, and covers every project at the cost of applying
+to projects that are not about machine learning.
 
-Two ways in without a file: click **Try power**, which engages this power for that
-session, or name the skill in the request ("use ml-planning to …").
+Clicking **Try power** engages this power for a single session, with no file at all.
 
 **The `steering/` directory in this power does not fire by itself.** That was measured
 too: with it installed, an activation reported receiving no `POWER.md` body and no
