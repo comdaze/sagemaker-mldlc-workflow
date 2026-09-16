@@ -1,7 +1,7 @@
 ---
 name: "sagemaker-ml-workflow"
 displayName: "SageMaker ML Workflow"
-description: "An AI-coding-driven ML development workflow for Amazon SageMaker: a planner that composes a run from named stages, plus one skill per stage that can also be called on its own. Traditional machine learning and deep learning - tabular regression and classification, time-series forecasting, framework or custom-container training - and deliberately not large-model fine-tuning. The AWS China partition is the verified baseline."
+description: "An AI-coding-driven ML development workflow for Amazon SageMaker: a planner that composes a run from named stages, plus one skill per stage that can also be called on its own. Traditional machine learning and deep learning - tabular regression and classification, time-series forecasting, framework or custom-container training - and deliberately not large-model fine-tuning. The AWS China partition is the verified baseline. SETUP: importing is not enough. Copy this power's steering/getting-started.md into the project's .kiro/steering/, or click Try power each session. Measured on one machine: without a project steering file a plain request engaged the planner in half of attempts; with one, in all of them."
 keywords: ["sagemaker", "machine learning", "deep learning", "mlops", "sagemaker pipeline", "training job", "processing job", "batch transform", "real-time inference", "byoc", "script mode", "data leakage", "model registry", "tabular", "time series forecasting", "cn-north-1", "cn-northwest-1", "中国区"]
 author: "Sean Yang"
 ---
@@ -53,10 +53,36 @@ and the plan linter refuses a task attributed to a missing one.
 - `dont-rebuild-what-you-can-read` — whether a missing managed capability should be
   self-built or read from an API you already have
 
-## Getting Started
+## Install — importing is not enough
 
-Read `steering/getting-started.md`, which is short and names the two things that must
-happen before any code is generated.
+Skill activation is a model judgement, not a rule, and every installed skill competes
+for the same match. Measured on one machine with one model and an identical prompt: a
+plain request engaged `ml-planning` in **two of four** attempts with the power merely
+imported, and in **three of three** once the project carried a steering file.
 
-The full argument, including which capability claims were measured against a real
-China account and which were only documented, is in `docs/DESIGN.md`.
+So add one file per project. It is a pointer — it names no partition, no SDK version,
+no `PLAN.md`, and the skill still does all the work:
+
+```bash
+mkdir -p .kiro/steering
+cp ~/.kiro/powers/installed/sagemaker-ml-workflow/steering/getting-started.md \
+   .kiro/steering/ml-workflow.md
+```
+
+`~/.kiro/steering/` works too, listed as **Global** in Kiro's steering panel, and
+covers every project at the cost of applying to projects that are not about machine
+learning.
+
+Two ways in without a file: click **Try power**, which engages this power for that
+session, or name the skill in the request ("use ml-planning to …").
+
+**The `steering/` directory in this power does not fire by itself.** That was measured
+too: with it installed, an activation reported receiving no `POWER.md` body and no
+steering guide, and fell back to reading the skills. It is the copy-source for the
+command above, not a mechanism.
+
+## Where the detail lives
+
+`README.md` carries the stage map and the SDK v2/v3 findings. `docs/DESIGN.md` records
+which capability claims were measured against a real China account, which were run end
+to end, and which were only documented.
