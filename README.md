@@ -228,15 +228,16 @@ to your clone need a re-import to take effect.
 
 ### Importing is not enough — add a steering line
 
-**Measured, not assumed.** Across five trial runs on one machine with one model
-(GPT-5.6 Terra, vibe mode, identical prompt), a plain request activated
-`ml-planning` **twice out of four times**. On the two misses a global skill in
-`~/.kiro/skills/` won the match instead. Rewording the description between attempts
-did not fix it: the run immediately after the description was widened still missed.
+**Measured, not assumed.** On one machine with one model (GPT-5.6 Terra, vibe mode,
+identical prompt), a plain request activated `ml-planning` **twice out of four
+times**. On the two misses a global skill in `~/.kiro/skills/` won the match
+instead. Rewording the description did not fix it: the run immediately after the
+description was widened still missed.
 
-Skill activation is a model judgement, not a rule, and every globally installed
-skill competes for the same match. So make it deterministic for the projects where
-it matters, with a `.kiro/steering/ml-workflow.md` in the project:
+Adding a project steering file took it to **three out of three**, and the steering
+used for that test is a pointer and nothing more — it names no partition, no SDK, no
+`PLAN.md`. The skill still did all the work; the file only made sure the skill was
+there to do it.
 
 ```markdown
 ---
@@ -244,18 +245,17 @@ inclusion: always
 ---
 
 Machine-learning work in this repository goes through the `sagemaker-ml-workflow`
-power. Start with `ml-planning`: resolve the partition and SDK version before
-writing code, and keep `PLAN.md` current.
+power. Start with its `ml-planning` skill and follow the workflow it defines.
 ```
 
-Steering files are loaded unconditionally rather than matched, so this removes the
-coin flip. This is not a quirk of this power — AWS's own Agent Toolkit documents the
-same requirement for its skills.
+Put that at `.kiro/steering/ml-workflow.md` in the project. Steering files are loaded
+unconditionally rather than matched, which is why this removes the coin flip. This is
+not a quirk of this power — AWS's own Agent Toolkit documents the same requirement for
+its skills.
 
-Two other reliable ways in, when a steering file is not wanted: click **Try power**
-on the power's page, which engages it for that session, or name the skill in the
-request ("use ml-planning to …"). The trial's one Try-power run activated correctly
-and passed every criterion, including the two that plain prompts had failed.
+Two other reliable ways in, when a steering file is not wanted: click **Try power** on
+the power's page, which engages it for that session, or name the skill in the request
+("use ml-planning to …").
 
 ## Validate
 

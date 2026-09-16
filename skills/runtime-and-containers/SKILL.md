@@ -74,8 +74,26 @@ command is complete and copy-pasteable, with the range taken from the contract
 rather than invented. And it says what changing the contract costs, so the cheaper
 option is not silently the more attractive one.
 
+**Prefer a project environment over mutating the global interpreter.** A trial run
+proposed this unprompted and it is the better default: an upgrade that only affects
+this project is a smaller thing to consent to, and it cannot break another project
+that needs v2.
+
+```
+  Fix (recommended — scoped to this project):
+      python3 -m venv .venv && ./.venv/bin/pip install 'sagemaker>=3.22,<4'
+
+  Fix (global, affects every project using this interpreter):
+      python3 -m pip install -U 'sagemaker>=3.22,<4'
+```
+
+State the side effects either way: this changes local Python dependencies and
+**creates, modifies or deletes no AWS resources**. That sentence is what lets a user
+say yes without stopping to think about blast radius, and a gate whose fix a user
+hesitates over is a gate that gets worked around.
+
 The same shape applies to every gate in this power: state what was declared, what
-was found, and the shortest path from one to the other.
+was found, and the shortest safe path from one to the other.
 
 ### v3 canonical paths
 
