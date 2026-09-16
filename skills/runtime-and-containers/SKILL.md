@@ -92,6 +92,36 @@ State the side effects either way: this changes local Python dependencies and
 say yes without stopping to think about blast radius, and a gate whose fix a user
 hesitates over is a gate that gets worked around.
 
+### When the install itself is the blocker
+
+A remedy command that times out is not a remedy. On a network where PyPI is slow or
+unreachable — which is the common case inside mainland China — name a mirror instead
+of letting the user watch a stalled download and conclude the power is broken:
+
+```bash
+# pip
+./.venv/bin/pip install -i https://mirrors.aliyun.com/pypi/simple/ 'sagemaker>=3.22,<4'
+
+# uv -- --index-url still works but is deprecated in favour of --default-index
+uv pip install --default-index https://mirrors.aliyun.com/pypi/simple/ 'sagemaker>=3.22,<4'
+```
+
+Either tool also reads it from the environment, which is better when several commands
+follow: `PIP_INDEX_URL` for pip, `UV_DEFAULT_INDEX` for uv.
+
+**Do not decide this from the partition.** An `arn:aws-cn:` caller is a hint that the
+machine is likely in China, and nothing more — credentials say where the AWS resources
+are, not where the shell is. A laptop in Frankfurt can hold Beijing credentials, and a
+laptop in Shenzhen can be working in `aws`. Inferring the network from the partition is
+the same mistake as inferring the partition from a region name, one layer out. Offer
+the mirror when a download is slow or fails, or when the user tells you where they are.
+
+Mirrors serve the same artefacts under the same names, so this changes throughput and
+not what gets installed. Verified only that the index answers and carries the package:
+`https://mirrors.aliyun.com/pypi/simple/` and its `sagemaker/` path both returned 200,
+from a machine outside China — which confirms the URL is right and says nothing about
+reachability from inside.
+
 The same shape applies to every gate in this power: state what was declared, what
 was found, and the shortest safe path from one to the other.
 

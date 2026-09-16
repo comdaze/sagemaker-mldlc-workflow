@@ -26,8 +26,11 @@ If you read nothing else in this file, do these. Each is expanded below.
    `importlib.metadata.version("sagemaker")` for the SDK. Confirm the active identity
    is the one this project targets, not merely whichever profile is loaded. The SDK
    version is a gate: when it fails, **give the command that fixes it** and let the
-   user decide. A one-command blocker is not a reason to deliver something else, and
-   "the request never said SageMaker" is not permission to.
+   user decide. Prefer a project `.venv` over the global interpreter, and if the
+   download is slow or fails, offer a package mirror — `runtime-and-containers` has
+   both, and a remedy that times out is not a remedy. A one-command blocker is not a
+   reason to deliver something else, and "the request never said SageMaker" is not
+   permission to.
 2. **Name the prediction time.** What moment is the prediction made at? Everything
    `leakage-guard` decides depends on it, and it is a declaration, not a discovery.
 3. **Pick a scope preset**, so the size of the run is a decision rather than an
