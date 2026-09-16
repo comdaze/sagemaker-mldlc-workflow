@@ -1,3 +1,9 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# Local tooling state, not part of the power. Committing this would ship one
+# machine's KiroCrew settings to everyone who imports the power, overriding
+# theirs. Scoped to settings/ rather than all of .kiro/ so that if hooks are
+# ever bundled deliberately, they are not silently ignored.
+.kiro/settings/
