@@ -2,7 +2,7 @@
 name: "sagemaker-ml-workflow"
 displayName: "SageMaker ML Workflow"
 description: "SETUP: copy steering/getting-started.md to .kiro/steering/ or this may not engage. An AI-coding-driven ML development workflow for Amazon SageMaker: a planner that composes a run from named stages, plus one skill per stage that can also be called on its own. Traditional machine learning and deep learning - tabular regression and classification, time-series forecasting, framework or custom-container training - and deliberately not large-model fine-tuning. The AWS China partition is the verified baseline. On the setup step: skill activation is a model judgement, not a rule. Measured on one machine, a plain request engaged the planner in two of four attempts with the power merely imported, and three of three once the project carried that one-line steering file. Clicking Try power engages it for a single session instead."
-keywords: ["sagemaker", "machine learning", "deep learning", "mlops", "sagemaker pipeline", "training job", "processing job", "batch transform", "real-time inference", "byoc", "script mode", "data leakage", "model registry", "tabular", "time series forecasting", "cn-north-1", "cn-northwest-1", "中国区"]
+keywords: ["sagemaker", "machine learning", "deep learning", "mlops"]
 author: "Sean Yang"
 ---
 
