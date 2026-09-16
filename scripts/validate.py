@@ -181,15 +181,18 @@ def check_power_md(path: Path) -> bool:
             "the page shows POWER.md's, so they must agree"
         )
 
-    # Descriptions are prose and will not be identical. Require they open the
-    # same way, which catches a rewrite of one and not the other while allowing
-    # each to end differently.
-    a = (front.get("description") or "").strip()[:60]
-    b = (doc.get("description") or "").strip()[:60]
-    if a and b and a != b:
+    # Descriptions are prose and will not be identical -- POWER.md's carries a
+    # Kiro-specific SETUP prefix because the power page has no install section
+    # and its truncated subtitle is the most prominent text on the page.
+    # Requiring identical openings would forbid that prefix; requiring that
+    # plugin.json's opening appear SOMEWHERE still catches the real hazard,
+    # which is one description being rewritten and the other left behind.
+    a = (front.get("description") or "").strip()
+    b = (doc.get("description") or "").strip()
+    if a and b and b[:60] not in a:
         warn(
-            "POWER.md and plugin.json descriptions diverge in their first 60 "
-            "characters -- the page shows POWER.md's"
+            "plugin.json's description opening does not appear in POWER.md's -- "
+            "one of the two was probably rewritten alone (the page shows POWER.md's)"
         )
 
     steering = ROOT / "steering"
