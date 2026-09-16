@@ -39,6 +39,50 @@ code, then cannot explain why last month's model does not rebuild. Pin the image
 by *digest*, not by a tag: a tag is a moving pointer, so `:latest` makes rollback
 a fiction.
 
+### When there is no repository to name a commit from
+
+A real run stalled here. The workspace was not a Git repository, `gitCommit` could
+not be established, and this skill offered nothing but the requirement — so the task
+recorded `[R]` with two blockers where one of them had a fix that takes seconds.
+
+That violated this power's own rule: a refusal is only complete when it carries the
+command that clears it. So say which of these applies, and say it with the command:
+
+```bash
+# Preferred: make the code addressable, which is what the field is for.
+git init && git add -A && git commit -m "Baseline for release candidate <releaseId>"
+git rev-parse HEAD          # this is the gitCommit value
+
+# When a repository is genuinely not wanted -- a scratch analysis, a notebook host:
+find scripts contracts -type f | LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256
+```
+
+The second form is a **content digest of the code bundle**, and it is a legitimate
+substitute because it answers the same question — *which code produced this* — from
+the bytes instead of from a repository. Record it as `codeBundleDigest` with the
+exact command that produced it, set `gitCommit` to `null`, and note the substitution
+under the plan's "Constraints traded away". What you lose is history: a commit lets
+someone read the diff that introduced a regression, and a digest only tells them the
+code differs. That is a real loss and it is the reason the first form is preferred.
+
+Four properties make that command usable as provenance, and all four were measured
+rather than assumed: touching every file without editing it leaves the digest
+unchanged; editing one byte changes it; renaming a file changes it, because the name
+is part of each line; and restoring the name restores the original digest. `LC_ALL=C
+sort` is what makes the file order independent of locale — drop it and the same tree
+can digest differently on another machine.
+
+A `tar`-based version of this is the obvious first idea and it does **not** work
+portably: `tar --sort=name` is GNU-only and BSD `tar` on macOS rejects it, which in
+testing produced the SHA-256 of empty input — a stable-looking digest that was
+identical for every input. If you write a bundle digest any other way, prove it
+changes when the code changes before you record it as provenance.
+
+What is **not** acceptable is inventing a value, reusing another release's commit, or
+proceeding with the field empty. Those all produce a candidate that claims
+reproducibility it does not have, which is the failure this whole triple exists to
+prevent.
+
 ### Reject mutable state by field name, not by review
 
 The candidate is where a mutable field gets smuggled in, and it always arrives

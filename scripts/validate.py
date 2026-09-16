@@ -124,6 +124,49 @@ def check_mcp_extras(path: Path) -> None:
             fail(f"mcp.json: server {server_name!r} is missing the required 'type' field")
 
 
+def check_stage_catalogue() -> None:
+    """The stage catalogue, skills/ and SKILL.md's table must name the same stages.
+
+    plan-lint.py derives each task's expected owner from the catalogue, so a name
+    that drifts out of step with skills/ turns the attribution check from a
+    refusal into a wrong answer. Three copies of the same list exist for good
+    reasons -- one machine-readable, one for the reader, one on disk -- and three
+    copies drift.
+    """
+    cat = ROOT / "skills" / "ml-planning" / "references" / "stage-catalogue.txt"
+    if not cat.exists():
+        fail("skills/ml-planning/references/stage-catalogue.txt is missing -- plan-lint.py needs it")
+        return
+
+    owners: set[str] = set()
+    for line in cat.read_text(encoding="utf-8").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) != 2:
+            fail(f"stage-catalogue.txt: malformed line {line!r} (expected '<stage> <skill>')")
+            continue
+        owners.add(parts[1])
+
+    on_disk = {d.name for d in (ROOT / "skills").iterdir() if (d / "SKILL.md").is_file()}
+    for name in sorted(on_disk - owners):
+        fail(
+            f"skill {name!r} exists in skills/ but owns no stage in "
+            "stage-catalogue.txt -- plan-lint would reject a task attributed to it"
+        )
+
+    skill_md = ROOT / "skills" / "ml-planning" / "SKILL.md"
+    if skill_md.exists():
+        body = skill_md.read_text(encoding="utf-8")
+        for name in sorted(owners):
+            if f"`{name}`" not in body:
+                warn(
+                    f"stage-catalogue.txt names {name!r} but ml-planning's stage table "
+                    "does not mention it; the reader and the linter disagree"
+                )
+
+
 def check_power_md(path: Path) -> bool:
     """Cross-check the legacy POWER.md manifest against plugin.json.
 
@@ -330,6 +373,7 @@ def main() -> int:
     upstream_count, owned_count = check_skills()
     check_no_escaping_paths()
     has_power_md = check_power_md(ROOT / "POWER.md")
+    check_stage_catalogue()
 
     for w in warnings:
         print(f"WARN  {w}")

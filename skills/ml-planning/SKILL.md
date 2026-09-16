@@ -249,6 +249,88 @@ SageMaker version. `LAST_DONE` is the cursor: the highest `[x]` task and when it
 completed, or `none`. On resume, read those three lines and the first unfinished
 task before anything else.
 
+### `[!]`: a gate ran and refused, and work continued anyway
+
+`[S]` means **a decision not to run something**. It cannot carry a refusal, and a
+real run proved why. Its quality gate executed, refused, and the refusal stood —
+registration and release stayed prohibited — but a waiver let local pipeline
+composition proceed. Recorded as `[S] skipped:`, and the linter's own summary then
+counted it beside a genuine scope decision. A blocked release and "we did not need
+an endpoint" looked like the same thing.
+
+So a gate that ran and said no is `[!]`, and it carries two obligations:
+
+```markdown
+10. [!] **Apply the quality gate** — refused: test MAE 56.37 exceeds the
+    pre-registered 48.59; `artifacts/quality-gate-report.json` records
+    `registrationAllowed: false`. Waived for local composition only, by explicit
+    user direction. blocks: 12, 13, 14 _(Stage: 10 | Skill: none; would be: evaluation-and-gate)_
+```
+
+`refused:` points at the artefact holding the decision, because a refusal with no
+artefact is a claim. `blocks:` names the tasks the refusal still stops, and **the
+linter fails if any of them is `[x]` or `[S]`** — that is the part with teeth, and
+it is what stops a waived gate from quietly shipping a model. A `[!]` that blocks
+nothing was waived in full; say that with `[S]` and a reason instead.
+
+### Attribution is derived from the stage, not asserted
+
+Every task declares its stage, and the owning skill comes from
+`references/stage-catalogue.txt`:
+
+```markdown
+4.  [x] **Screen the features** — … _(Stage: 4 | Skill: leakage-guard)_
+5.  [x] **Process the data** — … _(Stage: 5 | Skill: none; would be: data-processing)_
+11. [x] **Compose the Pipeline** — … _(Stage: sagemaker-pipeline | Skill: none; would be: sagemaker-pipeline)_
+```
+
+Cross-cutting work names the skill as its stage, because `runtime-and-containers`
+and `sagemaker-pipeline` apply at several stages rather than occupying one.
+
+**Use `Skill: none; would be: <stage owner>` for every stage this version does not
+implement.** This is not politeness, it is the difference between a true record
+and a false one. The rule used to be only that the named skill must exist, and
+that did active harm: a 17-task run attributed **ten** stages to skills that do not
+own them, because their real owners do not exist in 0.1.0 and the linter demanded a
+name that does. The plan asserted that `leakage-guard` owns data processing and
+model evaluation, and passed. Seven of the ten apologised in prose on the same line
+that made the false claim.
+
+The linter now prints the gap as a count — `9 stage(s) owned by no skill yet: …` —
+so a reader sees how much of the run was built from first principles without
+reading seventeen sentences to find out.
+
+### Declare the gate before you can see the result
+
+Write the quality-gate contract at **stage 6**, with the baselines, not at stage 10
+when the gate runs. A threshold is only pre-registered if it was fixed before the
+number it judges existed.
+
+A real run got this right and still failed to *show* it. The threshold was genuinely
+fixed 36 minutes before evaluation, in `contracts/baseline-contract.json` — but the
+file named `quality-gate-contract.json` was written two minutes *after* the
+evaluation report. An auditor opening the gate contract sees a threshold younger
+than the result it judges, and the evidence that clears it lives in a different
+file they have no reason to open.
+
+So the gate report must cite the contract's hash and assert that the contract file
+predates the prediction file. That assertion is checkable, which is the whole point:
+"I did not peek" is not evidence, and a timestamp is.
+
+### Separate what was declared from what was produced
+
+Two directories, and the split is what makes any of the above auditable:
+
+```
+contracts/   written BEFORE the stage runs — the promise
+artifacts/   written AFTER   — the result, and whether it kept the promise
+```
+
+A run that invented this convention on its own ended with ten contracts and twelve
+artefacts, and its pre-registration could be checked by anyone with `ls`. Without
+the split, a threshold and a result are two JSON files in a folder and their order
+is a matter of trust.
+
 ### Check the plan, do not just write it
 
 The linter ships beside this skill, and the path depends on where the power lives.
@@ -267,10 +349,10 @@ reporting a plan as checked.
 
 Run it after every edit. It checks contiguous numbering, exactly one state marker
 per task, at most one `[-]`, no task `[x]` above an unsettled one, `[S]` carrying a
-reason, `LAST_DONE` agreeing with the highest `[x]`, and every `_(Skill: …)_`
-naming a skill that exists in this power. That last check is the mechanical form
-of the rule against planning capabilities nothing implements. The linter refuses
-to run when it cannot locate `skills/` rather than skipping that check quietly — a
+reason, `[!]` carrying `refused:` and a `blocks:` list none of whose tasks are
+finished, `LAST_DONE` agreeing with the highest `[x]`, and every task's `Skill:`
+matching the owner its `Stage:` implies. It refuses to run when it cannot locate
+`skills/` or the stage catalogue rather than skipping those checks quietly — a
 checker reporting success with its main check skipped is worse than no checker.
 
 ## Principles

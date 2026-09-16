@@ -1,0 +1,39 @@
+# The stage catalogue, machine-readable. `<stage>` TAB-or-space `<owning skill>`.
+# Blank lines and # comments ignored. This mirrors the table in SKILL.md Step 3;
+# validate.py asserts the two agree and that every directory in skills/ appears
+# here, because two lists of the same names drift and the drift is silent.
+#
+# plan-lint.py uses it to DERIVE each task's expected owner from its declared
+# `Stage:` instead of trusting the `Skill:` field. A real 17-task run attributed
+# ten stages to skills that do not own them -- the linter's old existence check
+# demanded a name that exists, and the true owners do not exist in 0.1.0, so the
+# plan asserted that leakage-guard owns data processing and model evaluation and
+# passed. Attribution has to be checkable against something, and the stage is the
+# only thing that identifies which skill should own a task.
+#
+# An owner not present in skills/ means that stage is implemented from first
+# principles when it runs. Those plans must say `Skill: none; would be: <name>`.
+
+1    ml-planning
+2    ml-planning
+3    dataset-contract
+4    leakage-guard
+5    data-processing
+6    baseline-first
+7    model-training
+8    hyperparameter-tuning
+9    evaluation-and-gate
+10   evaluation-and-gate
+11   governed-release
+12   governed-release
+13   batch-inference
+14   realtime-inference
+15   dont-rebuild-what-you-can-read
+16   ml-planning
+
+# Cross-cutting: real skills with no stage number, because they apply at several
+# stages rather than occupying one. A task that IS the work of one of these
+# declares the skill name as its stage, e.g. `Stage: sagemaker-pipeline`.
+# Stage 16 re-enters the chain at 3 or 5; ml-planning owns the decision to do so.
+sagemaker-pipeline      sagemaker-pipeline
+runtime-and-containers  runtime-and-containers

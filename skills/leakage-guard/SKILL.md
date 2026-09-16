@@ -105,6 +105,37 @@ A feature that nearly *is* the target is either the target under another name or
 computed from it. There is no third explanation worth training on, and no naming
 convention will surface this — only the comparison will.
 
+### Prove the refusal fires, on data you control
+
+A screen that has never refused anything is indistinguishable from a screen with a
+sign error, and both report PASS. So every run must include one **probe**: take a
+column you know is inadmissible, put it through the same code path, and record that
+it was refused.
+
+A real run did this without being asked, and it is the strongest thing in that run's
+evidence. Its leakage audit recorded eight checks as PASS — and separately, an
+in-memory node-price probe that **triggered both statistical refusal checks**. The
+first half says the admissible features passed. Only the second half says the checks
+work.
+
+Build the probe from data you already have rather than fabricating one. The target
+itself, lightly perturbed, is the cheapest inadmissible column that exists:
+
+```python
+probe = y + rng.normal(0, y.std() * 0.01, len(y))   # correlation ~0.9999
+assert screen(probe) is REFUSED, "the leakage screen did not fire on the target itself"
+```
+
+Record the probe's own numbers in the audit artefact — correlation, direct-prediction
+error, which bound it crossed — not just that it was refused. `README.md` classifies
+this power's constraints by whether "a test can prove the refusal fires". This is that
+test, and until a run carries it the classification is a claim about the code rather
+than a measurement of it.
+
+**Never run the probe against the real feature set and keep going.** Its purpose is to
+verify the screen, so it lives in memory, never reaches a training channel, and never
+appears in the feature policy.
+
 ### Report the ratio, not just the score
 
 Publish the model's error **beside the best single-feature-as-prediction score and
