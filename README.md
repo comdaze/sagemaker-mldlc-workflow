@@ -17,8 +17,7 @@ verdict, and the capability matrix records how each one was established. The rea
 for that emphasis is not regional: a workflow that quietly does not run where its
 user is, is worse than one that says so.
 
-Version 0.1.0. Five of fourteen planned skills exist; the rest are named below and
-explicitly marked. See [Status](#status).
+Version 0.1.0. Eight skills cover all sixteen stages. See [Skills](#skills).
 
 ## The flow
 
@@ -64,7 +63,7 @@ flowchart TB
     RT -.-> S13
     RT -.-> S14
 
-    PIPE{{"sagemaker-pipeline<br/>composes 5 through 11 into one Pipeline object"}}
+    PIPE{{"ml-planning composes<br/>stages 5 through 11 into one Pipeline object"}}
     PIPE -.-> S5
     PIPE -.-> S11
 
@@ -76,40 +75,43 @@ flowchart TB
 ```
 
 Ordering is a prerequisite chain: each stage's output is the next one's required
-input. The dotted skills are cross-cutting rather than stages.
+input. The dotted boxes are cross-cutting rather than stages.
 
 ## Calling one stage on its own
 
 Stages 3, 4, 5, 6, 7, 8, 9, 12, 13, 14 and 15 are each invocable alone — "just run a
-batch transform", "just build the processing job", "just screen these features".
-Naming the stage, its prerequisites, and a one-task `PLAN.md` is the whole ceremony.
+batch transform", "just build the processing job", "just screen these inputs". Naming
+the stage, its prerequisites, and a one-task `PLAN.md` is the whole ceremony. A skill
+covering four stages is still invoked for just one of them.
 
 Composing stages into a `Pipeline` and calling one alone are **two uses of the same
-skills**, not two bodies of content. `sagemaker-pipeline` is the skill that composes;
-the single-stage skills teach how to write each step.
+content**, not two bodies of it. `ml-planning` composes, because deciding the stage
+sequence and compiling it are one decision in two forms; each stage's own skill teaches
+how to write that step.
 
 ## Skills
 
-| Skill | Stages | Standalone | Status |
+| Skill | Stages | Standalone | Ships a script |
 |---|---|---|---|
-| `ml-planning` | 1, 2, presets, `PLAN.md` | orchestrator | **exists** |
-| `leakage-guard` | 4 | ✔ | **exists** |
-| `runtime-and-containers` | cross-cutting: 5, 7, 13, 14 | ✔ | **exists** |
-| `release-and-serve` | 11, 12 | ✔ | **exists** |
-| `monitor-and-retrain` | 15 | ✔ | **exists** |
-| `dataset-contract` | 3 | ✔ | planned |
-| `data-processing` | 5 | ✔ | planned |
-| `baseline-first` | 6 | ✔ | planned |
-| `model-training` | 7 | ✔ | planned |
-| `hyperparameter-tuning` | 8 | ✔ | planned |
-| `evaluation-and-gate` | 9, 10 | ✔ | planned |
-| `sagemaker-pipeline` | composes 5–11 | orchestrator | planned |
-| `batch-inference` | 13 | ✔ | planned |
-| `realtime-inference` | 14 | ✔ | planned |
+| `ml-planning` | 1, 2, presets, `PLAN.md`, pipeline composition | orchestrator | `plan-lint.py` |
+| `data-pipeline` | 3, 5 | ✔ | `contract-check.py` |
+| `leakage-guard` | 4 | ✔ | |
+| `train-and-tune` | 6, 7, 8 | ✔ | `training-check.py` |
+| `evaluate-and-gate` | 9, 10 | ✔ | `quality-gate.py` |
+| `release-and-serve` | 11, 12, 13, 14 | ✔ | |
+| `monitor-and-retrain` | 15, 16 | ✔ | |
+| `runtime-and-containers` | cross-cutting: 5, 7, 9, 13, 14 | ✔ | |
 
-`ml-planning` states which skills do not exist yet, and `plan-lint.py` rejects a
-`PLAN.md` task attributed to a missing one. That refusal is deliberate: the plan
-must name reality rather than the linter being relaxed.
+**Sixteen stages, eight skills, deliberately not one-to-one.** An earlier version made
+them one-to-one and projected about 4,600 lines of skill body; the authoring guidance caps
+a body at 500 lines because it loads on every trigger, and CRISP-DM has grouped a
+comparable task list under six phases since 1996. The stage numbers survived the
+consolidation unchanged, because sixteen stages map onto the six standard phases without
+remainder. `docs/DESIGN.md` records the measurements.
+
+Every stage marked standalone is still callable alone — a skill covering four stages is
+still invoked for just batch inference, and the scope presets name stages rather than
+skills.
 
 ## SDK v3 is the main line, and it is still moving
 
@@ -181,7 +183,7 @@ the suspect column, used as-is     MAE  14.18   corr 0.975   ← the leak
 the trained model                  MAE  18.76   ← worse than the leak alone
 ```
 
-Two things follow, and both are now structural. `baseline-first` makes the naive
+Two things follow, and both are now structural. `train-and-tune` makes the naive
 scores a required output, so an implausible result is visible on sight.
 `leakage-guard`'s behavioural screen is a **refusal**, because sorting features by
 name is a hypothesis and names lie.
@@ -243,7 +245,7 @@ Four ways in, and three of them do not depend on that judgement:
 | **Try power** button | none | one click per session | engages the power, then asks for an overview |
 | Plain request | none | none | **about 1 in 2** |
 
-**`/ml-planning` is the cheapest.** Importing the power registers all five skills as
+**`/ml-planning` is the cheapest.** Importing the power registers all eight skills as
 slash commands in the composer, each with its description, so typing `/ml` narrows to
 one — none of the thirteen global skills on the test machine starts with those
 letters, and none collides with a name in this power. It addresses the failure
@@ -303,18 +305,38 @@ python3 scripts/validate.py --refresh  # re-fetch the schema first
 ```
 
 Validates `plugin.json` against the [Agent Plugins 1.0.0](https://agent-plugins.org/)
-schema and checks that every skill has a `SKILL.md` whose frontmatter `name` matches
-its directory. A schema it cannot load is a hard failure, not a warning — a validator
-reporting success while skipping its main check is worse than no validator.
+schema, checks that every skill has a `SKILL.md` whose frontmatter `name` matches its
+directory, and cross-checks the stage catalogue against `skills/` and against
+`ml-planning`'s own stage table. A schema it cannot load is a hard failure, not a
+warning — a validator reporting success while skipping its main check is worse than no
+validator.
+
+Four skills ship a check of their own. Each corresponds to rules in its skill body, and
+each exists as a script rather than as prose for one reason: **a rule that can refuse
+holds, and a rule that stays prose holds only while someone remembers it.**
 
 ```bash
 python3 skills/ml-planning/scripts/plan-lint.py PLAN.md
+python3 skills/data-pipeline/scripts/contract-check.py \
+        contracts/dataset-manifest.json artifacts/processing-report.json
+python3 skills/train-and-tune/scripts/training-check.py \
+        artifacts/baseline-report.json artifacts/training-report.json \
+        artifacts/tuning-report.json
+python3 skills/evaluate-and-gate/scripts/quality-gate.py \
+        contracts/quality-gate-contract.json artifacts/evaluation-report.json \
+        --out artifacts/quality-gate-report.json
 ```
 
-Checks contiguous numbering, exactly one state marker per task, at most one `[-]`, no
-task `[x]` above an unsettled one, `[S]` carrying a reason, `LAST_DONE` agreeing with
-the highest `[x]`, and every `_(Skill: …)_` naming a skill that exists. It refuses to
-run when it cannot locate `skills/`, rather than skipping that check quietly.
+| Script | Refuses on |
+|---|---|
+| `plan-lint.py` | numbering, one state marker per task, at most one `[-]`, no `[x]` above an unsettled task, `[S]` without a reason, `[!]` without `refused:` and a `blocks:` list none of whose tasks are done, `LAST_DONE` disagreeing with the highest `[x]`, and a `Skill:` that does not match the owner its `Stage:` implies |
+| `contract-check.py` | a dataset identity with a hole, a `versionId` that is null or the string `"null"`, an unverified read-back, an absent completeness assertion, partition counts that do not reconcile, a group key in two partitions, overlapping boundaries, a transform fitted outside the training partition, outputs with no digest |
+| `training-check.py` | no baselines, the weaker baseline named as strongest, a bound not derived from it, an image pinned by tag, a test channel in training or tuning, no model artefact, undeclared candidates, a winner not recorded as fixed before test access |
+| `quality-gate.py` | **it computes the verdict rather than checking one** — a contract that cannot be shown to predate the predictions, a model worse than a recorded baseline, an unexplained missing metric, no independent recomputation, or a hand-written verdict that disagrees. Exits non-zero on `REFUSED`, so a failing gate stops a step instead of producing a document someone has to read |
+
+Every refusal above was verified by breaking a fixture one field at a time. The gate was
+additionally run against a real end-to-end run's numbers and independently reached the
+same `REFUSED`.
 
 ## Neighbours
 
