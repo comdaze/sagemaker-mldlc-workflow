@@ -1,8 +1,8 @@
-# Kiro Power: SageMaker ML workflow
+# Kiro Power: SageMaker MLDLC workflow
 
-An AI-coding-driven machine-learning workflow for Amazon SageMaker — a planner that
-composes a run from named stages, plus one skill per stage that can also be called
-on its own.
+An AI-coding-driven machine-learning development life cycle (MLDLC) for Amazon
+SageMaker — a planner that composes a run from named stages, plus one skill per stage
+that can also be called on its own.
 
 **In scope:** traditional machine learning and deep learning. Tabular regression and
 classification, time-series forecasting, and models trained in a framework or a
@@ -261,7 +261,7 @@ keystrokes.
 inclusion: always
 ---
 
-Machine-learning work in this repository goes through the `sagemaker-ml-workflow`
+Machine-learning work in this repository goes through the `sagemaker-mldlc-workflow`
 power. Start with its `ml-planning` skill and follow the workflow it defines.
 ```
 
@@ -269,7 +269,7 @@ Put that at `.kiro/steering/ml-workflow.md`, or copy the one this power ships:
 
 ```bash
 mkdir -p .kiro/steering
-cp ~/.kiro/powers/installed/sagemaker-ml-workflow/steering/getting-started.md \
+cp ~/.kiro/powers/installed/sagemaker-mldlc-workflow/steering/getting-started.md \
    .kiro/steering/ml-workflow.md
 ```
 

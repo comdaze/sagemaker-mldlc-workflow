@@ -1,6 +1,6 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-  "name": "sagemaker-ml-workflow",
+  "name": "sagemaker-mldlc-workflow",
   "version": "0.1.0",
   "description": "An AI-coding-driven ML development workflow for Amazon SageMaker: a planner that composes a run from named stages, plus one skill per stage that can also be called on its own. Covers traditional machine learning and deep learning - tabular regression and classification, time-series forecasting, and framework or custom-container training - and deliberately not large-model fine-tuning. Data processing, training, batch transform and real-time inference are each invocable alone or composed into a SageMaker Pipeline. The AWS China partition is the verified baseline: every capability claim carries a China verdict.",
   "author": {

@@ -19,7 +19,7 @@ in the project:
 
 ```bash
 mkdir -p .kiro/steering
-cp ~/.kiro/powers/installed/sagemaker-ml-workflow/steering/getting-started.md \
+cp ~/.kiro/powers/installed/sagemaker-mldlc-workflow/steering/getting-started.md \
    .kiro/steering/ml-workflow.md
 ```
 

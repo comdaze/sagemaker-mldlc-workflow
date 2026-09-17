@@ -1,12 +1,12 @@
 ---
-name: "sagemaker-ml-workflow"
-displayName: "SageMaker ML Workflow"
-description: "START HERE: type /ml-planning in the composer, or add a steering file - both below. An AI-coding-driven ML development workflow for Amazon SageMaker: a planner that composes a run from named stages, plus one skill per stage that can also be called on its own. Traditional machine learning and deep learning - tabular regression and classification, time-series forecasting, framework or custom-container training - and deliberately not large-model fine-tuning. The AWS China partition is the verified baseline.   WHY THERE IS A SETUP STEP: skill activation is a model judgement, not a rule, and a plain request engaged the planner in only two of four attempts on the machine this was measured on. Calling it by name with /ml-planning skips the matching entirely and needs no setup. To remove even that, put a one-line steering file in the project - it is loaded unconditionally, and measured three times out of three:   mkdir -p .kiro/steering && cp ~/.kiro/powers/installed/sagemaker-ml-workflow/steering/getting-started.md .kiro/steering/ml-workflow.md   Clicking Try power engages this power for a single session instead."
+name: "sagemaker-mldlc-workflow"
+displayName: "SageMaker MLDLC Workflow"
+description: "START HERE: type /ml-planning in the composer, or add a steering file - both below. An AI-coding-driven ML development workflow for Amazon SageMaker: a planner that composes a run from named stages, plus one skill per stage that can also be called on its own. Traditional machine learning and deep learning - tabular regression and classification, time-series forecasting, framework or custom-container training - and deliberately not large-model fine-tuning. The AWS China partition is the verified baseline.   WHY THERE IS A SETUP STEP: skill activation is a model judgement, not a rule, and a plain request engaged the planner in only two of four attempts on the machine this was measured on. Calling it by name with /ml-planning skips the matching entirely and needs no setup. To remove even that, put a one-line steering file in the project - it is loaded unconditionally, and measured three times out of three:   mkdir -p .kiro/steering && cp ~/.kiro/powers/installed/sagemaker-mldlc-workflow/steering/getting-started.md .kiro/steering/ml-workflow.md   Clicking Try power engages this power for a single session instead."
 keywords: ["sagemaker", "machine learning", "deep learning", "mlops"]
 author: "Sean Yang"
 ---
 
-# SageMaker ML Workflow
+# SageMaker MLDLC Workflow
 
 ## Overview
 
@@ -76,7 +76,7 @@ rather not think about it at all, add one file per project instead:
 
 ```bash
 mkdir -p .kiro/steering
-cp ~/.kiro/powers/installed/sagemaker-ml-workflow/steering/getting-started.md \
+cp ~/.kiro/powers/installed/sagemaker-mldlc-workflow/steering/getting-started.md \
    .kiro/steering/ml-workflow.md
 ```
 
