@@ -60,8 +60,10 @@ under six phases since 1996 for the same reason.
 - `runtime-and-containers` — cross-cutting: the five runtime modes, the container contract,
   image resolution per partition, and the SDK v2/v3 gate
 
-Four ship a script that refuses rather than a description of one: `plan-lint.py`,
-`contract-check.py`, `training-check.py`, `quality-gate.py`. The last computes its own
+Five ship a script that refuses rather than a description of one: `plan-lint.py`,
+`contract-check.py`, `leakage-screen.py`, `training-check.py`, `quality-gate.py`. Two of
+them decide rather than check — the leakage screen computes on the data and refuses to
+report at all if its own built-in probe does not fire, and the gate computes its own
 verdict and exits non-zero, so a failing gate stops a step instead of producing a document
 someone has to read.
 

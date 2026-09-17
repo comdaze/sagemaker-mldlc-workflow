@@ -311,7 +311,7 @@ directory, and cross-checks the stage catalogue against `skills/` and against
 warning — a validator reporting success while skipping its main check is worse than no
 validator.
 
-Four skills ship a check of their own. Each corresponds to rules in its skill body, and
+Five skills ship a check of their own. Each corresponds to rules in its skill body, and
 each exists as a script rather than as prose for one reason: **a rule that can refuse
 holds, and a rule that stays prose holds only while someone remembers it.**
 
@@ -319,6 +319,8 @@ holds, and a rule that stays prose holds only while someone remembers it.**
 python3 skills/ml-planning/scripts/plan-lint.py PLAN.md
 python3 skills/data-pipeline/scripts/contract-check.py \
         contracts/dataset-manifest.json artifacts/processing-report.json
+python3 skills/leakage-guard/scripts/leakage-screen.py \
+        data.csv contracts/feature-policy.json --out artifacts/leakage-audit.json
 python3 skills/train-and-tune/scripts/training-check.py \
         artifacts/baseline-report.json artifacts/training-report.json \
         artifacts/tuning-report.json
@@ -331,12 +333,17 @@ python3 skills/evaluate-and-gate/scripts/quality-gate.py \
 |---|---|
 | `plan-lint.py` | numbering, one state marker per task, at most one `[-]`, no `[x]` above an unsettled task, `[S]` without a reason, `[!]` without `refused:` and a `blocks:` list none of whose tasks are done, `LAST_DONE` disagreeing with the highest `[x]`, and a `Skill:` that does not match the owner its `Stage:` implies |
 | `contract-check.py` | a dataset identity with a hole, a `versionId` that is null or the string `"null"`, an unverified read-back, an absent completeness assertion, partition counts that do not reconcile, a group key in two partitions, overlapping boundaries, a transform fitted outside the training partition, outputs with no digest |
+| `leakage-screen.py` | **it computes on the data, standard library only, so it runs inside a processing job** — a correlation or single-input AUC above the declared bound, or a candidate whose error used directly as the prediction lands at or below the quality bound. Exits 2 rather than reporting when it cannot be trusted: no bounds declared, or **its own built-in probe did not fire** |
 | `training-check.py` | no baselines, the weaker baseline named as strongest, a bound not derived from it, an image pinned by tag, a test channel in training or tuning, no model artefact, undeclared candidates, a winner not recorded as fixed before test access |
 | `quality-gate.py` | **it computes the verdict rather than checking one** — a contract that cannot be shown to predate the predictions, a model worse than a recorded baseline, an unexplained missing metric, no independent recomputation, or a hand-written verdict that disagrees. Exits non-zero on `REFUSED`, so a failing gate stops a step instead of producing a document someone has to read |
 
-Every refusal above was verified by breaking a fixture one field at a time. The gate was
-additionally run against a real end-to-end run's numbers and independently reached the
-same `REFUSED`.
+Every refusal above was verified by breaking a fixture one field at a time. Two were
+additionally checked against reality: the gate was run against a real end-to-end run's
+numbers and independently reached the same `REFUSED`, and the leakage screen was run on
+synthetic data with a planted leak — refusing it at correlation 0.9999 and a
+direct-prediction MAE of 0.37 against a target whose standard deviation was 34 — and on the
+same data with the bounds set so that nothing could fire, where its own probe stopped the
+run.
 
 ## Neighbours
 

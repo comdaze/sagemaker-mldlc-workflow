@@ -123,30 +123,61 @@ Record in `PLAN.md` which one you read. A screen written without it is a screen 
 bounds were invented, and the omission is otherwise invisible — the code runs and
 reports PASS either way.
 
+### Run the screen, and let it prove itself
+
+```bash
+SCREEN=$(ls ~/.kiro/powers/installed/*/skills/leakage-guard/scripts/leakage-screen.py \
+         ./skills/leakage-guard/scripts/leakage-screen.py 2>/dev/null | head -1)
+python3 "$SCREEN" data.csv contracts/feature-policy.json \
+        --out artifacts/leakage-audit.json
+```
+
+Standard library only, so it runs where the data is — inside a processing job, inside a
+built-in algorithm image, on a laptop. Requiring numpy to compute a correlation would put
+the screen out of reach in exactly the places it belongs.
+
+**It refuses to report at all if it cannot refuse.** Before screening anything, it builds
+a probe from the target — the target plus 1% noise for a numeric target, the label with 1%
+of values flipped for a binary one — pushes it through the same code path, and exits 2 if
+the screen does not fire on it. A screen that has never refused anything is
+indistinguishable from a screen with a sign error, and both report PASS. This is that
+distinction, made on your data, in this run, before any verdict is printed.
+
+So there are three outcomes, not two:
+
+| Exit | Meaning |
+|---|---|
+| 0 | screened, probe fired, nothing refused |
+| 1 | a candidate was refused — it is named, with the measurement and the bound it crossed |
+| 2 | the screen could not be trusted: no bounds declared, no probe constructible, or the probe did not fire |
+
+A candidate the statistics cannot reach — a text field against a numeric target, an image
+path — is reported as **UNSCREENED**, not as passed. Screen those by the modality
+reference and record the result; an unscreened candidate is not a cleared one.
+
 ### Prove the refusal fires, on data you control
 
-A screen that has never refused anything is indistinguishable from a screen with a
-sign error, and both report PASS. So every run includes one **probe**: an input known
-to be inadmissible, put through the same code path, with the refusal recorded.
+The script above does this for you on every run, and it is worth knowing why it is built in
+rather than left as a step someone remembers.
 
-A real run did this without being asked, and it is the strongest thing in that run's
-evidence. Its audit recorded eight checks as PASS — and separately, one probe that
-triggered both of its statistical refusals. The first half says the admissible inputs
-passed. Only the second half says the checks work.
+A real run did it unprompted, and it is the strongest thing in that run's evidence: the
+audit recorded eight checks as PASS, and separately one probe that triggered both
+statistical refusals. **The first half says the admissible inputs passed. Only the second
+half says the checks work.**
 
-Build the probe from data you already have rather than fabricating one; the target or
-the label, lightly corrupted, is the cheapest inadmissible input that exists. The
-construction is modality-specific and lives in the reference you read above.
-
-Record the probe's own numbers in the audit artefact — which check, what value, which
+Record the probe's own numbers in the audit artefact — which statistic, what value, which
 bound it crossed — not merely that it was refused. `README.md` classifies this power's
-constraints by whether "a test can prove the refusal fires". This is that test, and
-until a run carries it the classification is a claim about the code rather than a
-measurement of it.
+constraints by whether "a test can prove the refusal fires"; this is that test, and until a
+run carries it the classification is a claim about the code rather than a measurement of it.
 
-**Never run the probe against the real input set and keep going.** Its purpose is to
-verify the screen, so it lives in memory, never reaches a training channel, and never
-appears in the input policy.
+If you screen by hand rather than with the script — a modality it does not cover — the
+obligation is unchanged. Build the probe from data you already have; the target or the
+label, lightly corrupted, is the cheapest inadmissible input that exists, and the
+construction per modality is in the reference you read above.
+
+**Never run a probe against the real input set and keep going.** Its purpose is to verify
+the screen, so it lives in memory, never reaches a training channel, and never appears in
+the input policy.
 
 ### Report the ratio, not just the score
 
