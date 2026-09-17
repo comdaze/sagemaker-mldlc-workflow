@@ -161,19 +161,17 @@ belongs to this skill, because deciding the stage sequence and compiling that se
 into a `Pipeline` object are one decision in two forms; see "Composing the stages"
 below.
 
-### Not yet implemented in this version
+### All eight skills exist
 
-The stage catalogue is the design; some of it is not built. As of version 0.1.0 the
-skills that exist are `ml-planning`, `leakage-guard`, `runtime-and-containers`,
-`release-and-serve` and `monitor-and-retrain` — the last two being renamed to
-`release-and-serve` and `monitor-and-retrain` as they absorb their remaining stages.
-`evaluate-and-gate` does not exist yet.
+Every stage in the table has an owning skill, and every skill is present. That was not
+true through most of this power's development, so the rule that got the project here is
+worth keeping: **when a plan reaches something no skill covers, say so plainly** and either
+proceed from first principles while noting the gap, or stop and ask. Write such a task as
+`Skill: none; would be: <owner>`, which is the legal form and makes the gap countable —
+`plan-lint.py` prints the count on every run.
 
-**So when a plan reaches one of them, say that plainly** and either proceed from first
-principles while noting the gap, or stop and ask. Do not present improvised guidance as
-though it came from a skill; that is the "plan promises what nothing implements" failure
-the linter checks for. Write those tasks as `Skill: none; would be: <owner>`, which is
-the legal form and makes the gap countable.
+Do not present improvised guidance as though it came from a skill. That is the "plan
+promises what nothing implements" failure the linter checks for.
 
 ### Stage 6 is not optional padding
 
