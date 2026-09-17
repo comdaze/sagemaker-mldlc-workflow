@@ -205,7 +205,7 @@ LAST_DONE: 2 @ 2026-09-16T17:40:00+08:00
 |---|---|
 | `[ ]` | not started |
 | `[-]` | in progress — at most one task at a time |
-| `[?]` | awaiting a human decision — and `asked:` records what you put to them |
+| `[?]` | awaiting a human decision — `asked:` records what you put to them, and nothing downstream may progress until it moves |
 | `[R]` | revising after a failed quality gate or review |
 | `[x]` | done |
 | `[S]` | skipped — a decision not to run it; `skipped: <why>` required |
@@ -222,34 +222,57 @@ for the resolved version, and `LAST_DONE` as the cursor — the highest `[x]` ta
 when it completed, or `none`. On resume, read those three and the first unfinished task
 before anything else.
 
-### `[?]` means you asked, and `[~]` means you went round it
+### `[?]` means you asked, `[~]` means you went round it, and an answer must move the state
 
-These two exist because a real run needed a state that was not there, and used the wrong
-one silently.
+These exist because a real run needed a state that was not there, and a later one asked
+correctly and then ignored the reply.
 
-It wrote `[?]` on "register the dataset", waiting on a versioned bucket — **and never
-asked for the bucket.** Then it ran the next six stages locally and left them as `[ ]`.
-Every artefact was on disk. The linter passed.
+**Round 9** wrote `[?]` on "register the dataset", waiting on a versioned bucket — **and
+never asked for the bucket.** Then it ran the next six stages locally and left them as
+`[ ]`. So `[?]` now requires `asked:`: what you put to the user, and when. A blocker
+nobody was told about is not a blocker, it is an assumption.
 
-So `[?]` now requires `asked:` — what you put to the user, and when. `[?]` is defined as
-work that cannot advance without a person; if nobody was asked, the work was not waiting,
-it was assumed.
+**Round 10 asked properly, the user answered three minutes later, and the plan was never
+touched again.** The task still said `[?] asked: …` while eight stages of work went
+ahead. Asking and then ignoring the answer is the same outcome as never asking, with a
+paper trail. So: **when the answer arrives, move the task off `[?]` before doing anything
+downstream** — to `[-]` if you are starting it, `[x]` if it is done, `[S]` with a reason
+if the answer was no.
 
-And `[~]` is the state that was missing: **substitute work happened, the original goal is
-still blocked.** The local run was correct behaviour under the blocked-goal rule, which
-offers exactly that alternative. What was wrong was that both `[x]` and `[ ]` misdescribe
-it and there was no third option.
+The linter enforces this without needing to know whether a reply came. Downstream of an
+open `[?]`, a task may be `[ ]`, `[S]` or `[R]`. It may **not** be `[-]`, `[x]` or `[!]` —
+that is progress past a block, and either the state is stale or the block was walked
+past. Both need the plan corrected first.
+
+`[~]` is the one legal way to move while a `[?]` stands, because it declares the
+substitution and names the blocker:
 
 ```markdown
-4. [~] **Screen the inputs** — instead-of: screened locally on the CSV rather than inside
-   a processing job, because stage 3 has no registered dataset yet. blocked-by: 3
+4. [~] **Screen the inputs** — instead-of: screened the local CSV rather than the
+   registered object, because stage 3 is still waiting on a bucket. blocked-by: 3
    _(Stage: 4 | Skill: leakage-guard)_
 ```
 
 `instead-of:` says what was delivered instead of what was asked. `blocked-by:` names the
-task that justifies the substitution, and **the linter fails if that task is settled** —
-because a substitution justified by a blocker that has since cleared is a substitution
-nobody revisited.
+task that justifies it, and the linter fails if that task is settled — a substitution
+justified by a blocker that has since cleared is one nobody revisited.
+
+### Your own working granularity is one stage, not a batch
+
+Whatever task list your harness keeps is not `PLAN.md`, and it is easy to write one item
+in it that covers eight stages. Round 10 did: a single work item reading "register the
+dataset, screen for leakage, process features, baselines, train, evaluate and compile the
+pipeline". That collapses the prerequisite chain and the one-`[-]`-at-a-time rule into a
+single unit, and it is how a blocked stage gets carried along with its downstream.
+
+**One unit of work is one stage.** If your harness wants a coarser item, that is its
+business — but the stage you are actually on is the one `[-]` in `PLAN.md`, and you update
+the file when the stage finishes rather than when the batch does.
+
+This one is enforced by consequence rather than directly: do eight stages between two
+lint runs and `--artifacts` fails on all eight at once, because their artefacts are on
+disk and their tasks still say the work has not happened. Which is the honest signal —
+the plan stopped tracking the work.
 
 ### The plan is checked against the workspace, not only against itself
 
@@ -263,26 +286,30 @@ python3 "$LINT" PLAN.md --artifacts artifacts/
 ```
 
 If neither pattern matches, say the linter could not be located instead of reporting a
-plan as checked. Run it after every edit.
+plan as checked.
+
+**Run it after every artefact you write, not once at the end.** A run that lints only at
+the finish discovers a plan-versus-disk disagreement when it is a page of violations
+rather than one, and by then the sequence that caused it cannot be reconstructed.
 
 Without `--artifacts` it checks the plan's internal consistency: numbering, one state
 marker per task, at most one `[-]`, no `[x]` above an unsettled task, `[S]` with a
 reason, `[!]` with `refused:` and a `blocks:` list none of whose tasks are settled, `[?]`
-with `asked:`, `[~]` with `instead-of:` and a live `blocked-by:`, `LAST_DONE` agreeing
-with the highest `[x]`, and every `Skill:` matching the owner its `Stage:` implies. It
-refuses to run when it cannot locate `skills/` or the stage catalogue, rather than
-skipping those checks quietly.
+with `asked:` and nothing progressing downstream of it, `[~]` with `instead-of:` and a
+live `blocked-by:`, `LAST_DONE` agreeing with the highest `[x]`, and every `Skill:`
+matching the owner its `Stage:` implies. It refuses to run when it cannot locate
+`skills/` or the stage catalogue, rather than skipping those checks quietly.
 
 **With `--artifacts` it stops reading your claims.** For every stage in
 `references/stage-artefacts.txt` whose artefact is on disk, the task must not say the
 work has not happened: `[ ]`, `[-]` and `[?]` all fail against an existing artefact.
 
-That closes a hole the other rules cannot. The run above left five tasks as `[ ]` with
-all five artefacts present, and passed — because the ordering rule only forbids `[x]`
-above an unsettled task, and nothing was marked `[x]`. **Understating progress is what
-got that plan through; a plan that had lied would have been refused instantly.** A check
-that rewards understatement is built backwards, so this one reads the workspace and asks
-the plan to account for what is there.
+That closes a hole the other rules cannot. Round 9 left five tasks as `[ ]` with all five
+artefacts present, and passed — because the ordering rule only forbids `[x]` above an
+unsettled task, and nothing was marked `[x]`. **Understating progress is what got that
+plan through; a plan that had lied would have been refused instantly.** A check that
+rewards understatement is built backwards, so this one reads the workspace and asks the
+plan to account for what is there.
 
 ## Composing the stages into a Pipeline
 

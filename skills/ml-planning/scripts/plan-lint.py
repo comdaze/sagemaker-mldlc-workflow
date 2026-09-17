@@ -382,6 +382,50 @@ def check_awaiting(tasks: list[Task], r: Report) -> None:
             )
 
 
+def check_awaiting_holds(tasks: list[Task], r: Report) -> None:
+    """A `[?]` that is still open must actually be holding the work back.
+
+    The half of the rule that was missing. One run asked correctly, the user answered
+    three minutes later, and the plan was never touched again -- so the task still said
+    `[?] asked: ...` while eight stages of work went ahead. Asking and then ignoring the
+    answer is not better than never asking; it is the same outcome with a paper trail.
+
+    The check does not need to know whether an answer arrived. It reads progress: if work
+    downstream of an open `[?]` has advanced, either the answer came and the state is
+    stale, or the block was walked past. Both need the plan corrected before anything
+    else happens.
+
+    `[~]` downstream is the one legal form, because that is the state that declares
+    substitute work and names the blocker justifying it.
+    """
+    PROGRESS = {"[-]", "[x]", "[!]"}
+    for t in tasks:
+        if t.marker != "[?]":
+            continue
+        for later in tasks:
+            if later.num <= t.num:
+                continue
+            if later.marker in PROGRESS:
+                r.fail(
+                    "awaiting",
+                    later.line_no,
+                    f"task {later.num} is {later.marker} while task {t.num} is still "
+                    "[?]. If the question was answered, move task "
+                    f"{t.num} off [?] BEFORE doing downstream work -- a plan that still "
+                    "says it is waiting for an answer it already has is stale about the "
+                    "one thing it exists to track. If it was not answered, this task "
+                    f"needs [~] with 'blocked-by: {t.num}'.",
+                )
+            elif later.marker == "[~]" and t.num not in later.blocked_by:
+                r.fail(
+                    "awaiting",
+                    later.line_no,
+                    f"task {later.num} is [~] downstream of the open [?] on task "
+                    f"{t.num}, but its blocked-by does not name it. Substitute work "
+                    "must say which blocker justifies it.",
+                )
+
+
 def check_substitutes(tasks: list[Task], r: Report) -> None:
     """[~] means substitute work happened while the original goal stayed blocked.
 
@@ -673,6 +717,7 @@ def main() -> int:
     check_skips(tasks, r)
     check_refusals(tasks, r)
     check_awaiting(tasks, r)
+    check_awaiting_holds(tasks, r)
     check_substitutes(tasks, r)
     check_skill_names(tasks, skills, catalogue, r)
 
