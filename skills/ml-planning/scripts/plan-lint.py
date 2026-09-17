@@ -20,27 +20,28 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# The seven states. Anything else in a task's marker position is a violation
+# The eight states. Anything else in a task's marker position is a violation
 # rather than something to interpret generously.
 STATES = {
     "[ ]": "not started",
     "[-]": "in progress",
-    "[?]": "awaiting a human decision",
+    "[?]": "awaiting a human decision -- which must have been ASKED",
     "[R]": "revising after a failed gate or review",
     "[x]": "done",
     "[S]": "skipped -- a decision not to run it",
     "[!]": "ran, refused, and the refusal stands while work continued",
+    "[~]": "done at a substitute level; the original goal is still blocked",
 }
 
-# A task that will never be worked on again. Ordering is checked against these
-# together, because neither a skipped nor a refused-and-waived task should block
-# the ones after it -- but [!] carries its own blocking list, checked separately.
-TERMINAL = {"[x]", "[S]", "[!]"}
+# A task that will never be worked on again as originally scoped. Ordering is checked
+# against these together. [~] belongs here because substitute work is real work: the
+# stages after it consumed its output.
+TERMINAL = {"[x]", "[S]", "[!]", "[~]"}
 
 PARTITIONS = {"aws", "aws-cn", "aws-us-gov"}
 
 TASK_RE = re.compile(r"^(?P<num>\d+)\.\s+(?P<rest>.*)$")
-MARKER_RE = re.compile(r"\[(?: |-|\?|R|x|S|!)\]")
+MARKER_RE = re.compile(r"\[(?: |-|\?|R|x|S|!|~)\]")
 SKILL_RE = re.compile(r"\bSkill:\s*(?P<name>[A-Za-z0-9._-]+)\s*\)_")
 # A stage no skill in this power owns yet. The would-be owner must be named, so
 # the gap is a field a reader can count rather than a sentence in prose.
@@ -49,6 +50,9 @@ UNOWNED_RE = re.compile(
 )
 STAGE_RE = re.compile(r"_\(Stage:\s*(?P<stage>[A-Za-z0-9._-]+)\s*\|")
 BLOCKS_RE = re.compile(r"blocks:\s*(?P<nums>\d+(?:\s*,\s*\d+)*)")
+ASKED_RE = re.compile(r"asked:\s*\S")
+INSTEAD_RE = re.compile(r"instead-of:\s*\S")
+BLOCKED_BY_RE = re.compile(r"blocked-by:\s*(?P<nums>\d+(?:\s*,\s*\d+)*)")
 LAST_DONE_RE = re.compile(r"^LAST_DONE:\s*(?P<val>.+?)\s*$")
 PARTITION_RE = re.compile(r"^PARTITION:\s*(?P<val>.+?)\s*$")
 LAST_DONE_VALUE_RE = re.compile(r"^(?P<num>\d+)\s*@\s*(?P<ts>\S+)$")
@@ -85,6 +89,12 @@ class Task:
         self.blocks = (
             [int(n.strip()) for n in m.group("nums").split(",")] if m else []
         )
+        m = BLOCKED_BY_RE.search(text)
+        self.blocked_by = (
+            [int(n.strip()) for n in m.group("nums").split(",")] if m else []
+        )
+        self.asked = bool(ASKED_RE.search(text))
+        self.instead_of = bool(INSTEAD_RE.search(text))
 
     @property
     def marker(self) -> str | None:
@@ -337,7 +347,7 @@ def check_refusals(tasks: list[Task], r: Report) -> None:
                     t.line_no,
                     f"task {t.num} blocks task {n}, which does not exist.",
                 )
-            elif by_num[n].marker in {"[x]", "[S]"}:
+            elif by_num[n].marker in {"[x]", "[S]", "[~]"}:
                 r.fail(
                     "refusal",
                     t.line_no,
@@ -345,6 +355,124 @@ def check_refusals(tasks: list[Task], r: Report) -> None:
                     f"{by_num[n].marker}. Either the block was lifted -- record how -- "
                     "or the refusal was ignored.",
                 )
+
+
+def check_awaiting(tasks: list[Task], r: Report) -> None:
+    """[?] means the work cannot advance without a person -- so a person must have been asked.
+
+    A real run wrote `[?]` on "register the dataset", never asked for the bucket it was
+    waiting on, and ran the next six stages locally instead. The state was accurate about
+    the blocker and false about everything the state MEANS: `[?]` is defined as work that
+    cannot advance, and the work advanced.
+
+    So `[?]` now has to carry `asked:` -- what was put to the user, and when. A blocker
+    nobody was told about is not a blocker, it is an assumption.
+    """
+    for t in tasks:
+        if t.marker != "[?]":
+            continue
+        if not t.asked:
+            r.fail(
+                "awaiting",
+                t.line_no,
+                f"task {t.num} is [?] but records no 'asked: <what you put to the user, "
+                "and when>'. [?] means the work cannot advance without a person; if "
+                "nobody was asked, the work was not actually waiting. Use [~] if you "
+                "proceeded at a substitute level, or [ ] if it simply has not started.",
+            )
+
+
+def check_substitutes(tasks: list[Task], r: Report) -> None:
+    """[~] means substitute work happened while the original goal stayed blocked.
+
+    The state that was missing. A run blocked on a versioned bucket did stages 4 through
+    10 locally -- correct behaviour under the blocked-goal rule, which offers exactly that
+    alternative -- and recorded those tasks as `[ ]`, which says nothing happened. Both
+    `[x]` and `[ ]` were wrong, and there was no third option.
+
+    `[~]` carries two obligations: what it substituted for, and which task blocks the
+    original. The second must name a task that is genuinely unsettled -- otherwise the
+    substitution is being justified by a blocker that has since cleared.
+    """
+    by_num = {t.num: t for t in tasks}
+    for t in tasks:
+        if t.marker != "[~]":
+            continue
+
+        if not t.instead_of:
+            r.fail(
+                "substitute",
+                t.line_no,
+                f"task {t.num} is [~] but records no 'instead-of: <what was delivered "
+                "instead of what was asked>'. A substitution nobody wrote down is "
+                "indistinguishable from a stage that was completed.",
+            )
+
+        if not t.blocked_by:
+            r.fail(
+                "substitute",
+                t.line_no,
+                f"task {t.num} is [~] but names no 'blocked-by: <task numbers>'. "
+                "Substitute work is justified by a blocker; name it, so a later reader "
+                "can check whether it still holds.",
+            )
+
+        for n in t.blocked_by:
+            if n not in by_num:
+                r.fail("substitute", t.line_no, f"task {t.num} is blocked-by task {n}, which does not exist.")
+            elif by_num[n].marker in {"[x]", "[S]"}:
+                r.fail(
+                    "substitute",
+                    t.line_no,
+                    f"task {t.num} claims to be blocked by task {n}, but task {n} is "
+                    f"{by_num[n].marker}. The blocker cleared -- either do the original "
+                    "work or record why the substitute now stands on its own.",
+                )
+
+
+def check_against_workspace(
+    tasks: list[Task], artefacts_dir: Path, artefact_map: dict[str, str], r: Report
+) -> None:
+    """The plan and the filesystem must agree about what happened.
+
+    This is the check that closes the hole the other two only narrow. A run left five
+    tasks as `[ ]` while every one of their artefacts sat on disk, and the linter passed
+    -- because the ordering rule forbids `[x]` above an unsettled task and nothing was
+    marked `[x]`. Understating progress was the thing that got the plan through. A plan
+    that had LIED would have been refused instantly.
+
+    A check that rewards understatement is built backwards, so this one does not read the
+    plan's claims at all: it reads the workspace and asks the plan to account for what is
+    there.
+    """
+    if not artefacts_dir.is_dir():
+        r.fail("workspace", None, f"--artifacts {artefacts_dir} is not a directory")
+        return
+
+    on_disk = {p.name: p for p in artefacts_dir.rglob("*") if p.is_file()}
+    by_stage = {t.stage: t for t in tasks if t.stage}
+
+    for stage, filename in artefact_map.items():
+        if filename not in on_disk:
+            continue
+        t = by_stage.get(stage)
+        if t is None:
+            r.fail(
+                "workspace",
+                None,
+                f"{filename} exists but no task declares Stage: {stage}. Work was done "
+                "that the plan does not account for.",
+            )
+            continue
+        if t.marker in {"[ ]", "[-]", "[?]"}:
+            r.fail(
+                "workspace",
+                t.line_no,
+                f"task {t.num} (Stage: {stage}) is {t.marker} but "
+                f"{on_disk[filename].relative_to(artefacts_dir)} exists. The work "
+                "happened and the plan says it did not. Mark it [x], or [~] with "
+                "'instead-of:' if what ran was a substitute for what was asked.",
+            )
 
 
 def check_skill_names(
@@ -481,6 +609,30 @@ def load_catalogue(explicit: Path | None) -> dict[str, str]:
     return out
 
 
+def load_two_column(path: Path, what: str, hard: bool) -> dict[str, str]:
+    """Read a `<key> <value>` reference file. Used for both catalogue and artefacts."""
+    if not path.is_file():
+        if hard:
+            raise SystemExit(
+                f"plan-lint: cannot read the {what} at {path}.\n"
+                "Running the other checks and reporting OK would misreport the plan as "
+                "verified."
+            )
+        return {}
+    out: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) != 2:
+            raise SystemExit(f"plan-lint: malformed {what} line in {path}: {line!r}")
+        out[parts[0]] = parts[1]
+    if hard and not out:
+        raise SystemExit(f"plan-lint: the {what} at {path} is empty.")
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Lint an ml-planning PLAN.md.")
     ap.add_argument("plan", type=Path, help="path to PLAN.md")
@@ -495,6 +647,13 @@ def main() -> int:
         type=Path,
         default=None,
         help="stage catalogue file (default: ../references/stage-catalogue.txt)",
+    )
+    ap.add_argument(
+        "--artifacts",
+        type=Path,
+        default=None,
+        help="cross-check against the workspace: fail when a stage's artefact is on disk "
+             "but its task says the work has not happened",
     )
     args = ap.parse_args()
 
@@ -513,7 +672,17 @@ def main() -> int:
     check_ordering(tasks, r)
     check_skips(tasks, r)
     check_refusals(tasks, r)
+    check_awaiting(tasks, r)
+    check_substitutes(tasks, r)
     check_skill_names(tasks, skills, catalogue, r)
+
+    if args.artifacts is not None:
+        amap = load_two_column(
+            Path(__file__).resolve().parent.parent / "references" / "stage-artefacts.txt",
+            "stage-artefact map",
+            hard=True,
+        )
+        check_against_workspace(tasks, args.artifacts, amap, r)
 
     if r.ok:
         state_counts: dict[str, int] = {}

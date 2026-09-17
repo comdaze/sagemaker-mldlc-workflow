@@ -1,0 +1,30 @@
+# Which artefact proves a stage ran. `<stage>` TAB-or-space `<artefact filename>`.
+# Blank lines and # comments ignored.
+#
+# plan-lint.py --artifacts <dir> uses this to cross-check the plan against the
+# workspace. If a stage's artefact is on disk while its task is still marked as not
+# started, the plan and the filesystem disagree, and the plan is the one that is wrong.
+#
+# WHY THIS EXISTS. A real run declared task 3 as `[?]` -- awaiting a bucket it never
+# asked for -- then ran stages 4, 5, 6, 9 and 10 locally and left their tasks as `[ ]`.
+# Every artefact was on disk. plan-lint passed, because its ordering rule only forbids
+# `[x]` above an unsettled task and nothing was marked `[x]`. Being honest about the
+# task states is what let the run through: a plan that had LIED and written `[x]` would
+# have been refused instantly. A check that rewards understatement is a check built
+# backwards, and reading the workspace is the only way to close it.
+#
+# A stage with no artefact of its own is absent from this list. Absence means
+# "unverifiable from disk", not "does not need doing".
+
+4    leakage-audit.json
+5    processing-report.json
+6    baseline-report.json
+7    training-report.json
+8    tuning-report.json
+9    evaluation-report.json
+10   quality-gate-report.json
+11   release-candidate.json
+13   batch-predictions.csv
+
+# Cross-cutting
+pipeline-composition   pipeline-definition.json

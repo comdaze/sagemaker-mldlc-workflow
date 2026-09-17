@@ -205,11 +205,12 @@ LAST_DONE: 2 @ 2026-09-16T17:40:00+08:00
 |---|---|
 | `[ ]` | not started |
 | `[-]` | in progress — at most one task at a time |
-| `[?]` | awaiting a human decision; the work cannot advance without it |
+| `[?]` | awaiting a human decision — and `asked:` records what you put to them |
 | `[R]` | revising after a failed quality gate or review |
 | `[x]` | done |
 | `[S]` | skipped — a decision not to run it; `skipped: <why>` required |
 | `[!]` | ran, refused, and the refusal stands while work continued — see below |
+| `[~]` | done at a substitute level; the original goal is still blocked — see below |
 
 `[?]` and `[R]` are not decoration. `[?]` is where a human approval sits by design;
 `[R]` is where a failed quality gate puts you. Written as `[-]`, "someone is working on
@@ -221,139 +222,94 @@ for the resolved version, and `LAST_DONE` as the cursor — the highest `[x]` ta
 when it completed, or `none`. On resume, read those three and the first unfinished task
 before anything else.
 
-### `[!]`: a gate ran and refused, and work continued anyway
+### `[?]` means you asked, and `[~]` means you went round it
 
-`[S]` means **a decision not to run something**, so it cannot carry a refusal. A real
-run proved why: its quality gate executed, refused, and the refusal stood — registration
-and release stayed prohibited — but a waiver let local pipeline composition proceed.
-Recorded as `[S] skipped:`, the linter's summary then counted a blocked release beside a
-genuine scope decision.
+These two exist because a real run needed a state that was not there, and used the wrong
+one silently.
 
-So a gate that ran and said no is `[!]`, with two obligations:
+It wrote `[?]` on "register the dataset", waiting on a versioned bucket — **and never
+asked for the bucket.** Then it ran the next six stages locally and left them as `[ ]`.
+Every artefact was on disk. The linter passed.
 
-```markdown
-10. [!] **Apply the quality gate** — refused: the held-out metric exceeds its
-    pre-registered bound; `artifacts/quality-gate-report.json` records
-    `registrationAllowed: false`. Waived for local composition only, by explicit user
-    direction. blocks: 12, 13, 14 _(Stage: 10 | Skill: none; would be: evaluate-and-gate)_
-```
+So `[?]` now requires `asked:` — what you put to the user, and when. `[?]` is defined as
+work that cannot advance without a person; if nobody was asked, the work was not waiting,
+it was assumed.
 
-`refused:` points at the artefact holding the decision, because a refusal with no
-artefact is a claim. `blocks:` names the tasks the refusal still stops, and **the linter
-fails if any of them is `[x]` or `[S]`** — that is the part with teeth, and what stops a
-waived gate from quietly shipping a model. A `[!]` that blocks nothing was waived in
-full; say that with `[S]` and a reason.
-
-### Attribution is derived from the stage, not asserted
-
-Every task declares its stage, and the owning skill comes from
-`references/stage-catalogue.txt`:
+And `[~]` is the state that was missing: **substitute work happened, the original goal is
+still blocked.** The local run was correct behaviour under the blocked-goal rule, which
+offers exactly that alternative. What was wrong was that both `[x]` and `[ ]` misdescribe
+it and there was no third option.
 
 ```markdown
-4.  [x] **Screen the inputs** — … _(Stage: 4 | Skill: leakage-guard)_
-5.  [x] **Process the data** — … _(Stage: 5 | Skill: none; would be: data-pipeline)_
-11. [x] **Compose the Pipeline** — … _(Stage: pipeline-composition | Skill: ml-planning)_
+4. [~] **Screen the inputs** — instead-of: screened locally on the CSV rather than inside
+   a processing job, because stage 3 has no registered dataset yet. blocked-by: 3
+   _(Stage: 4 | Skill: leakage-guard)_
 ```
 
-Cross-cutting work names the skill as its stage, because `runtime-and-containers` and
-pipeline composition apply at several stages rather than occupying one.
+`instead-of:` says what was delivered instead of what was asked. `blocked-by:` names the
+task that justifies the substitution, and **the linter fails if that task is settled** —
+because a substitution justified by a blocker that has since cleared is a substitution
+nobody revisited.
 
-**Use `Skill: none; would be: <owner>` for every stage this version does not
-implement.** Not politeness — the difference between a true record and a false one. The
-rule used to be only that the named skill must exist, and a 17-task run then attributed
-**ten** stages to skills that do not own them, because their real owners did not exist
-and the linter demanded a name that did. The plan asserted that `leakage-guard` owns
-data processing and model evaluation, and passed. Seven of the ten apologised in prose
-on the same line that made the false claim.
+### The plan is checked against the workspace, not only against itself
 
-The linter prints the gap as a count — `N stage(s) owned by no skill yet` — so a reader
-sees how much was built from first principles without reading every task to find out.
-
-### Declare the gate before you can see the result
-
-Write the quality-gate contract at **stage 6**, with the baselines, not at stage 10
-when the gate runs. A threshold is only pre-registered if it was fixed before the
-number it judges existed.
-
-A real run got this right and still failed to *show* it. The threshold was genuinely
-fixed 36 minutes before evaluation, in `contracts/baseline-contract.json` — but the
-file named `quality-gate-contract.json` was written two minutes *after* the
-evaluation report. An auditor opening the gate contract sees a threshold younger
-than the result it judges, and the evidence that clears it lives in a different
-file they have no reason to open.
-
-So the gate report must cite the contract's hash and assert that the contract file
-predates the prediction file. That assertion is checkable, which is the whole point:
-"I did not peek" is not evidence, and a timestamp is.
-
-### Separate what was declared from what was produced
-
-Two directories, and the split is what makes any of the above auditable:
-
-```
-contracts/   written BEFORE the stage runs — the promise
-artifacts/   written AFTER   — the result, and whether it kept the promise
-```
-
-A run that invented this convention on its own ended with ten contracts and twelve
-artefacts, and its pre-registration could be checked by anyone with `ls`. Without
-the split, a threshold and a result are two JSON files in a folder and their order
-is a matter of trust.
-
-### Check the plan, do not just write it
-
-The linter ships beside this skill, and the path depends on where the power lives.
-Resolve it rather than guessing — a command that does not run teaches a reader to
-skip the next one:
+The linter ships beside this skill; resolve its path rather than guessing, because a
+command that does not run teaches a reader to skip the next one:
 
 ```bash
 LINT=$(ls ~/.kiro/powers/installed/*/skills/ml-planning/scripts/plan-lint.py \
        ./skills/ml-planning/scripts/plan-lint.py 2>/dev/null | head -1)
-python3 "$LINT" PLAN.md
+python3 "$LINT" PLAN.md --artifacts artifacts/
 ```
 
-The first pattern finds it in an installed power, the second in a clone of the
-repository. If neither matches, say the linter could not be located instead of
-reporting a plan as checked.
+If neither pattern matches, say the linter could not be located instead of reporting a
+plan as checked. Run it after every edit.
 
-Run it after every edit. It checks contiguous numbering, exactly one state marker
-per task, at most one `[-]`, no task `[x]` above an unsettled one, `[S]` carrying a
-reason, `[!]` carrying `refused:` and a `blocks:` list none of whose tasks are
-finished, `LAST_DONE` agreeing with the highest `[x]`, and every task's `Skill:`
-matching the owner its `Stage:` implies. It refuses to run when it cannot locate
-`skills/` or the stage catalogue rather than skipping those checks quietly — a
-checker reporting success with its main check skipped is worse than no checker.
+Without `--artifacts` it checks the plan's internal consistency: numbering, one state
+marker per task, at most one `[-]`, no `[x]` above an unsettled task, `[S]` with a
+reason, `[!]` with `refused:` and a `blocks:` list none of whose tasks are settled, `[?]`
+with `asked:`, `[~]` with `instead-of:` and a live `blocked-by:`, `LAST_DONE` agreeing
+with the highest `[x]`, and every `Skill:` matching the owner its `Stage:` implies. It
+refuses to run when it cannot locate `skills/` or the stage catalogue, rather than
+skipping those checks quietly.
+
+**With `--artifacts` it stops reading your claims.** For every stage in
+`references/stage-artefacts.txt` whose artefact is on disk, the task must not say the
+work has not happened: `[ ]`, `[-]` and `[?]` all fail against an existing artefact.
+
+That closes a hole the other rules cannot. The run above left five tasks as `[ ]` with
+all five artefacts present, and passed — because the ordering rule only forbids `[x]`
+above an unsettled task, and nothing was marked `[x]`. **Understating progress is what
+got that plan through; a plan that had lied would have been refused instantly.** A check
+that rewards understatement is built backwards, so this one reads the workspace and asks
+the plan to account for what is there.
 
 ## Composing the stages into a Pipeline
 
-Deciding the stage sequence and compiling it into a `Pipeline` object are one decision
-in two forms: `PLAN.md` is the form a person reads, the pipeline definition is the form
-SageMaker executes. That is why this lives here rather than in a separate skill —
-splitting them lets the two drift, and a plan that disagrees with the pipeline it
-produced is worse than either alone.
+Deciding the stage sequence and compiling it into a `Pipeline` object are one decision in
+two forms: `PLAN.md` is the form a person reads, the definition is the form SageMaker
+executes. Splitting them into two skills lets the two drift, and a plan that disagrees
+with the pipeline it produced is worse than either alone.
 
 Four rules, each of which a trial run got right and is worth keeping right.
 
-**Compile locally before creating anything.** Emit the definition, inspect it, and call
-no create, upsert or start API until it has been read. A definition is a document; a
-pipeline is a resource with a cost and a lifecycle.
+**Compile locally before creating anything.** Emit the definition, inspect it, and call no
+create, upsert or start API until it has been read. A definition is a document; a pipeline
+is a resource with a cost and a lifecycle.
 
-**Every gate becomes a `ConditionStep` that fails closed.** The quality gate in
-`PLAN.md` and the condition in the definition are the same rule; if the definition can
-reach registration when the gate refuses, the definition is wrong regardless of what
-the plan says. The pass branch may be empty and the fail branch a `FailStep` — that is
-a correct pipeline, not an incomplete one.
+**Every gate becomes a `ConditionStep` that fails closed.** The gate in `PLAN.md` and the
+condition in the definition are the same rule; if the definition can reach registration
+when the gate refuses, the definition is wrong whatever the plan says. An empty pass
+branch and a `FailStep` failure branch is a correct pipeline, not an incomplete one.
 
-**A definition whose code bundle is not yet immutable is not executable.** Mark it so.
-A trial run recorded `readyForExecution: false` with the reason attached, which is the
-right shape: the artefact exists, its status is stated, and nobody mistakes a compiled
-document for a runnable one.
+**A definition whose code bundle is not yet immutable is not executable.** Mark it so. A
+run recorded `readyForExecution: false` with the reason attached — the artefact exists,
+its status is stated, and nobody mistakes a compiled document for a runnable one.
 
-**Composing and calling alone are two uses of one body of content.** Each stage's own
-skill says how to write that step. This section says how the steps connect — ordering,
-parameterisation, caching, resuming, and turning off any auto-registration that would
-create resources as a side effect of running. If you find yourself writing step
-guidance here, it belongs in the stage's skill.
+**Composing and calling alone are two uses of one body of content.** Each stage's skill
+says how to write that step; this says how steps connect — ordering, parameterisation,
+caching, resuming, and turning off auto-registration that would create resources as a
+side effect. Step guidance written here belongs in the stage's skill.
 
 ## Principles
 
