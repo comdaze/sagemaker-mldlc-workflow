@@ -1,6 +1,6 @@
 ---
 name: leakage-guard
-description: Decides which features a supervised model may use, by asking whether each value was knowable at prediction time - covering point-in-time correctness, split hygiene, and a behavioural screen that refuses to train on a feature that nearly is the target. Use before training any model, when choosing or reviewing a feature set, when an offline score looks too good, or when deciding train/validation/test splits. Applies to tabular, time-series and deep-learning work in every partition.
+description: Decides which inputs a supervised model may use, by asking whether each value was knowable at prediction time - covering point-in-time correctness, split hygiene, and a behavioural screen that refuses to train on an input that nearly is the target. Use before training any model, when choosing or reviewing an input set, when an offline score looks too good, or when deciding train/validation/test splits. Applies to tabular, time-series and deep-learning work in every partition.
 ---
 
 # Leakage guard
@@ -10,10 +10,14 @@ One question decides admissibility:
 > **Was this value knowable at prediction time?**
 
 Everything below is machinery for answering it honestly, because the two ways of
-getting it wrong both look like success. Refuse too much and you ship a model that
-can only see the calendar. Refuse too little and you ship an offline score that
-production will not reproduce — and that failure is the expensive one, because
-every structural check passes on the way out.
+getting it wrong both look like success. Refuse too much and you ship a model with
+too little validated signal to support the decision it was built for. Refuse too
+little and you ship an offline score that production will not reproduce — and that
+failure is the expensive one, because every structural check passes on the way out.
+
+**This body decides; the references measure.** What counts as a refusal is here and
+holds in every modality. Which statistic implements it is in `references/`, and step 3
+says which one to read.
 
 ## Step 1: name the prediction time
 
@@ -42,131 +46,145 @@ conclusion.
 
 | Tier | What it is | Verdict |
 |---|---|---|
-| **Structurally impossible to be late** | derived from the calendar or the request itself — hour, weekday, holiday flag, the submitted application's own fields | Allowed, no assumption needed |
-| **Available by design, unverified here** | a forecast published by an upstream operator before the cut-off; a third-party score refreshed on a known schedule; a contract term agreed in advance | **Allowed**, with the assumption recorded in the plan |
-| **Known to be after the fact** | actuals, realized values, settlement and adjudication outcomes, final statuses, resolution codes, post-hoc labels, and any lag or rolling statistic computed from them | **Forbidden**, and the validator must reject it |
+| **Structurally impossible to be late** | derived from the request itself or from the calendar — the submitted application's own fields, the image being classified, hour and weekday | Allowed, no assumption needed |
+| **Available by design, unverified here** | a value an upstream party publishes before the decision point; a third-party score refreshed on a known schedule; a contract term agreed in advance; a representation whose fitting provenance is stated but not proven | **Allowed**, with the assumption recorded in the plan |
+| **Known to be after the fact** | actuals, realized values, settlement and adjudication outcomes, final statuses, resolution codes, post-hoc labels, annotations informed by the outcome, and any aggregate computed from them | **Forbidden**, and the validator must reject it |
 
 **The middle tier is where the damage happens, in both directions.**
 
-Forbidding it is the responsible-looking failure: a plan that withholds every
-feature whose publication time it cannot prove ends up with a calendar-only model.
-Hour-of-day cannot forecast a price or score a loan. That is not a safe answer, it
-is a useless one, and it is discovered late because the pipeline runs perfectly.
+Forbidding it is the responsible-looking failure. A plan that withholds every input
+whose availability it cannot prove keeps only what is trivially safe, and what is
+trivially safe is rarely enough to support the decision — hour-of-day cannot price a
+market or score a loan. That is not a safe answer, it is a useless one, and it is
+discovered late because the pipeline runs perfectly.
 
-So the default for tier 2 is **allow and record**. A value named for a product that
-exists before the event is published before the event — that is what the product
-*is*. Reserve refusal for what you have positive reason to believe is late.
+So the default for tier 2 is **allow and record**. A value named for something that
+exists before the event is published before the event — that is what the thing *is*.
+Reserve refusal for what you have positive reason to believe is late.
 
-Anything in tier 3 that is genuinely needed becomes a **new feature at a later
+Anything in tier 3 that is genuinely needed becomes a **new input at a later
 prediction time**, not an exception to the rule.
 
-## Step 3: screen every feature against the target — this is a refusal
+## Step 3: screen every candidate against the target — this is a refusal
 
-Sorting by name is a hypothesis, and **names lie**. Run a screen that costs one
-pass over the data, and treat it as a gate rather than a diagnostic.
+Sorting by name is a hypothesis, and **names lie**. Run a screen that costs one pass
+over the data, and treat it as a gate rather than a diagnostic.
 
-The measured case this exists for: a column named as a *long-term reference price*
-sounded contracted in advance and was allowed into tier 2. Used **directly as the
-prediction, with no model at all**, it scored MAE 14.18 against a target whose
-standard deviation was 232, correlating 0.975 — better than the trained model that
-had been permitted to use it. It was a settlement quantity derived from realized
-outcomes. Every structural check passed. The quality gate passed. The result was
-worthless.
+The measured case this exists for: an input whose name described a value contracted
+in advance was allowed into tier 2, and was in fact computed from the realized
+outcome. Used **directly as the prediction, with no model at all**, it scored MAE
+14.18 against a target whose standard deviation was 232, correlating 0.975 — better
+than the trained model that had been permitted to use it. Every structural check
+passed. The quality gate passed. The result was worthless.
 
 ```
-naive: predict the mean            MAE 182.71
-naive: same period yesterday       MAE 137.06
-the suspect column, used as-is     MAE  14.18   corr 0.975   ← the leak
-the trained model                  MAE  18.76   ← worse than the leak alone
+one measured run, for scale — not the general baseline set
+  naive: predict the mean            MAE 182.71
+  naive: previous period, same slot  MAE 137.06
+  the suspect input, used as-is      MAE  14.18   corr 0.975   ← the leak
+  the trained model                  MAE  18.76   ← worse than the leak alone
 ```
-
-### What to compute
-
-1. For each candidate feature, its correlation with the target — and where the
-   units are comparable, its error **used directly as the prediction**.
-2. For a classification target, the same idea with a classification measure: AUC of
-   the single feature, and its mutual information with the label.
-3. Two naive baselines beside them: predict the mean or majority class, and predict
-   the previous period's value at the same position.
 
 ### What refuses
 
-- **A correlation above a declared bound** — `spec.data.leakageScreen.maxAbsCorrelation`,
-  0.95 is a reasonable default. Failing the screen is a hard stop, and the bound
-  lives in the contract so raising it is a reviewable act rather than an edit
-  nobody sees.
-- **A single feature whose direct-as-prediction error is anywhere near the quality
-  gate.** If one column already nearly clears the bar the model must clear, the
-  model is not the thing being measured.
-- **A single-feature AUC above roughly 0.95** on a classification target, for the
-  same reason.
+Three refusals, stated in the form they take in every modality. The *statistic* that
+implements each one differs; the *consequence* does not.
 
-A feature that nearly *is* the target is either the target under another name or
+1. **An input that predicts the target too well on its own.** Whatever measure suits
+   the modality, there is a bound, the bound is declared in the contract, and
+   crossing it is a hard stop rather than a warning.
+2. **An input whose direct use as the prediction lands near the quality gate.** If
+   one input already nearly clears the bar the model must clear, the model is not the
+   thing being measured.
+3. **An input whose availability at prediction time cannot be established, and which
+   there is positive reason to believe is late.** Tier 3 of step 2, mechanically.
+
+An input that nearly *is* the target is either the target under another name or
 computed from it. There is no third explanation worth training on, and no naming
-convention will surface this — only the comparison will.
+convention will surface it — only the comparison will.
+
+**None of the three may be softened into a review step.** A constraint written as a
+refusal survives into the artefacts; written as a suggestion it holds only while
+someone remembers. Argue about a bound in the contract, where the argument is visible;
+the consequence of crossing it is not negotiable at runtime.
+
+### Read the reference for your modality — this is a step, not a footnote
+
+The body above says what a refusal is. It does not say what to measure, because that
+depends on what an input *is*. Do not write the screen without reading one of these:
+
+| Your inputs | Read |
+|---|---|
+| Table columns, computed aggregates, third-party scores | `references/screening-scalar.md` |
+| Images, text, audio, embeddings, any derived representation | `references/screening-unstructured.md` |
+| **Additionally**, anything carrying a time axis | `references/temporal-sources.md` |
+
+Record in `PLAN.md` which one you read. A screen written without it is a screen whose
+bounds were invented, and the omission is otherwise invisible — the code runs and
+reports PASS either way.
 
 ### Prove the refusal fires, on data you control
 
 A screen that has never refused anything is indistinguishable from a screen with a
-sign error, and both report PASS. So every run must include one **probe**: take a
-column you know is inadmissible, put it through the same code path, and record that
-it was refused.
+sign error, and both report PASS. So every run includes one **probe**: an input known
+to be inadmissible, put through the same code path, with the refusal recorded.
 
 A real run did this without being asked, and it is the strongest thing in that run's
-evidence. Its leakage audit recorded eight checks as PASS — and separately, an
-in-memory node-price probe that **triggered both statistical refusal checks**. The
-first half says the admissible features passed. Only the second half says the checks
-work.
+evidence. Its audit recorded eight checks as PASS — and separately, one probe that
+triggered both of its statistical refusals. The first half says the admissible inputs
+passed. Only the second half says the checks work.
 
-Build the probe from data you already have rather than fabricating one. The target
-itself, lightly perturbed, is the cheapest inadmissible column that exists:
+Build the probe from data you already have rather than fabricating one; the target or
+the label, lightly corrupted, is the cheapest inadmissible input that exists. The
+construction is modality-specific and lives in the reference you read above.
 
-```python
-probe = y + rng.normal(0, y.std() * 0.01, len(y))   # correlation ~0.9999
-assert screen(probe) is REFUSED, "the leakage screen did not fire on the target itself"
-```
+Record the probe's own numbers in the audit artefact — which check, what value, which
+bound it crossed — not merely that it was refused. `README.md` classifies this power's
+constraints by whether "a test can prove the refusal fires". This is that test, and
+until a run carries it the classification is a claim about the code rather than a
+measurement of it.
 
-Record the probe's own numbers in the audit artefact — correlation, direct-prediction
-error, which bound it crossed — not just that it was refused. `README.md` classifies
-this power's constraints by whether "a test can prove the refusal fires". This is that
-test, and until a run carries it the classification is a claim about the code rather
-than a measurement of it.
-
-**Never run the probe against the real feature set and keep going.** Its purpose is to
+**Never run the probe against the real input set and keep going.** Its purpose is to
 verify the screen, so it lives in memory, never reaches a training channel, and never
-appears in the feature policy.
+appears in the input policy.
 
 ### Report the ratio, not just the score
 
-Publish the model's error **beside the best single-feature-as-prediction score and
-the naive baselines**, on the release page and in the training report. A model that
-beats its own quality gate by an order of magnitude has usually found a leak rather
-than a signal, and that ratio makes it visible immediately instead of after
-deployment. `baseline-first` is the stage that makes this unavoidable.
+Publish the model's error **beside the best single-input-as-prediction score and the
+naive baselines**, on the release page and in the training report. A model that beats
+its own quality gate by an order of magnitude has usually found a leak rather than a
+signal, and that ratio makes it visible immediately instead of after deployment.
+`baseline-first` is the stage that makes this unavoidable.
 
 ## Step 4: split hygiene — the other family
 
-Point-in-time correctness is about *which columns*. This is about *which rows*, and
-it leaks just as thoroughly with a perfectly admissible feature set.
+Point-in-time correctness governs *which inputs*. This governs *which samples*, and
+it leaks just as thoroughly with a perfectly admissible input set.
 
 | Failure | What it looks like | The rule |
 |---|---|---|
-| **Fit before split** | a scaler, imputer, encoder or feature-selector fitted on all rows, then applied per fold | fit on the training partition only, inside the fold |
-| **Target encoding on full data** | a category replaced by its mean target, computed over every row | compute out-of-fold, or from the training partition alone |
-| **Group bleed** | the same customer, device, site or patient in both train and test | split by group, never by row |
-| **Temporal bleed** | a random shuffle on time-ordered data | split chronologically; validation must be strictly later than training |
-| **Duplicate rows** | the same record present in both partitions | de-duplicate before splitting, on a declared key |
+| **Fit before split** | any fitted artefact — scaler, imputer, encoder, selector, tokeniser, embedding — produced over all samples, then applied per fold | fit on the training partition only, inside the fold |
+| **Target-informed encoding** | a value replaced by a statistic of the target computed over every sample | compute out-of-fold, or from the training partition alone |
+| **Group bleed** | the same customer, device, site, patient, recording or document in two partitions | split by group, never by sample |
+| **Temporal bleed** | a random shuffle on time-ordered data | split chronologically; validation strictly later than training |
+| **Duplicates** | the same sample in two partitions, exactly or near-exactly | de-duplicate before splitting, on a declared key or similarity bound |
 | **Repeated tuning on the test set** | the held-out set consulted once per experiment | tune on validation; touch test once, at the end |
 
-Two of these have a mechanical check worth writing, so they belong in the pipeline
-rather than in a reviewer's memory: **assert the intersection of group keys across
-partitions is empty**, and **assert max(train timestamp) < min(validation
-timestamp)**. Both are one line and both fail loudly.
+Two have a mechanical check worth writing, so they belong in the pipeline rather than
+in a reviewer's memory: **assert the intersection of group keys across partitions is
+empty**, and, where there is a time axis, **assert the validation period begins after
+the training period ends**. Both are one line and both fail loudly.
 
 The preprocessing rule has a structural form too: put every fitted transform inside
-the pipeline step that also does the split, so there is no code path in which a
-transform can see rows it should not. A transform fitted in a notebook cell above
-the split is the classic shape of this bug.
+the pipeline step that also does the split, so no code path exists in which a
+transform can see samples it should not. A transform fitted above the split — in a
+notebook cell, or in a shared preparation script — is the classic shape of this bug.
+
+Two rows need modality detail this body does not carry: deriving and declaring the
+group when no such field exists, and the similarity bound that replaces an equality
+key for near-duplicates, both in `references/screening-unstructured.md`. The temporal
+assertions, including the lag-feature one that is usually skipped, are in
+`references/temporal-sources.md`.
 
 ## Step 5: what goes in the contract
 
@@ -175,65 +193,65 @@ spec:
   data:
     predictionTime: <the instant, and what it is relative to>
     leakageScreen:
-      maxAbsCorrelation: 0.95
-      maxSingleFeatureAuc: 0.95        # classification targets
-    features:
-      allowed: [<explicit list — never "everything else">]
+      modality: scalar | unstructured | both
+      reference: <which reference file the bounds came from>
+      bounds: <the declared bounds -- names and values are modality-specific;
+               see the reference for this modality>
+    inputs:
+      allowed: [<explicit list -- never "everything else">]
       forbidden: [<tier 3, by name and by pattern>]
       assumed:                          # tier 2
-        - feature: <name>
+        - input: <name>
           reason: <why it is believed available at prediction time>
     split:
       strategy: chronological | grouped | stratified
-      groupKey: <column, when grouped>
+      groupBy: <the group identity, when grouped -- a field, or how it is derived>
       boundaries: <dates or fractions>
 ```
 
-`features.allowed` is an explicit allowlist rather than an exclusion rule for the
-same reason it always is: when a new column appears upstream, an allowlist keeps
-the model unchanged until someone decides, while "everything except" silently
-absorbs it — including if it is an actual.
+Two properties matter more than the field names. Every bound is **declared here and
+nowhere else**, so raising one is a reviewable act. And `reference` records which
+modality's bounds were used, which is what distinguishes a screen that was configured
+from one whose numbers were invented.
 
-`forbidden` should carry patterns as well as names (`*_actual`, `settle*`,
-`*_final`, `resolution_*`), because the next column to leak has not been named yet.
+`inputs.allowed` is an explicit allowlist rather than an exclusion rule: when
+something new appears upstream, an allowlist keeps the model unchanged until someone
+decides, while "everything except the forbidden ones" silently absorbs it — including
+when the new arrival is an actual. `forbidden` carries patterns as well as names
+(`*_actual`, `*_final`, `resolution_*`, and whatever the domain's own post-hoc naming
+is), because the next thing to leak has not been named yet.
 
 ## Step 6: record what you could not verify
 
-Tier 2 rests on an assumption. Say so, in the plan, once per assumption:
+Tier 2 rests on an assumption. Say so, in the plan, once per assumption — what is
+assumed, what enforces it structurally anyway, and what specifically remains
+unverified.
 
-```markdown
-## Constraints traded away
+Do **not** demand proof of availability as a precondition for registering the
+dataset. The record that would prove it — a per-source, per-period publication log,
+or a documented annotation procedure — exists only where someone already built it.
+Requiring it blocks the whole plan on an artefact nobody has. Enforce the boundary
+structurally so a late value cannot enter an input, record the residual assumption,
+and use the proof to *check* it later if it turns up. Its absence is a recorded gap,
+not a stop.
 
-- Upstream publication punctuality is assumed, not verified: no per-period
-  publication-time record exists for the day-ahead sources. The pipeline enforces
-  the cut-off structurally, so a late value cannot enter a feature; what is
-  unverified is whether the source was ever late in the history we trained on.
-```
+`references/temporal-sources.md` has the wording for the time-axis case, which is
+where this comes up most.
 
-**Do not demand a publication-proof record as a precondition for registering the
-dataset.** A per-period, per-source `published_at` table exists only where an
-upstream platform already produces one. Asking for it blocks the entire plan on an
-artefact nobody has. If the user happens to have one, use it to *check* the
-assumption later; its absence is a recorded gap, not a stop.
+## The trap that names cannot warn you about
 
-## Two traps where the column name looks innocent
+**Any input computed from the outcome is inadmissible, whatever it is called.** Worth
+stating separately because the usual review heuristic — read the names, flag the
+suspicious ones — is exactly what fails here: a value produced by a process that
+concludes after the event is often *stamped* with a time before it, because it
+describes that earlier period. So check how a value is produced, not what it is
+called. The two recurring shapes and their remedies are in
+`references/temporal-sources.md`.
 
-- **A settled or resolved value is not a prediction.** Anything whose name involves
-  settlement, clearing, adjudication, reconciliation or a final status is computed
-  from the outcome by definition. Check the process timetable rather than the word:
-  a value described as belonging to the day *before* the target may still be
-  produced after a morning cut-off.
-- **An observation is not a forecast.** Weather, sensor and telemetry columns pulled
-  from a historical archive are usually reanalysis or actuals — what *happened*.
-  Using them as features for the target period is leakage that no metadata can fix,
-  because the value never existed at the prediction time. The remedy is a different
-  data pull — what the forecast said at that past moment — not a publication-time
-  record.
-
-When you cannot yet tell which tier a feature belongs to, **say which check would
-decide it** and put that check in the plan as a task: "is this weather column
-reanalysis, or a forecast issued before the cut-off?" A named, answerable check
-beats both a deadlock and a silent exclusion.
+When you cannot yet tell which tier an input belongs to, **name the check that would
+decide it** and put that check in the plan as a task. A named, answerable check beats
+both a deadlock and a silent exclusion — and the silent exclusion is worse, because it
+leaves no trace that a decision was made.
 
 ## What this skill does not cover
 
