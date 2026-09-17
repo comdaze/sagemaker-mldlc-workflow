@@ -28,6 +28,56 @@ verdict, and the capability matrix lives in
 is not patriotism about a region; it is that a workflow which quietly does not
 run where its user is, is worse than one that says so.
 
+## What may travel into a skill, and what may not
+
+This power is validated against real projects, and that creates a specific way for
+it to fail: a skill written from one project's code teaches the shape of that
+project while looking like general guidance. The user of a churn model or an image
+classifier then receives rules fitted to a market-price dataset, with nothing in
+the text to warn them.
+
+So there is one line, and it is narrow enough to apply without judgement:
+
+> **A measurement may be the ARGUMENT for a constraint. It may never be the
+> CONTENT of one.**
+
+| Admissible | Not admissible |
+|---|---|
+| "One column used directly as the prediction scored MAE 14.18 against a target whose standard deviation was 232" — why the leakage screen is a refusal | A column name, a schema, a table of allowed and forbidden fields from some dataset |
+| "A gate of 130 passed a model at 18.8 while a single column scored 14.2" — why stage 6 exists | "Split by trading day, 96 rows per day" — one dataset's grain presented as a rule |
+| "A run attributed ten stages to skills that do not own them" — a workflow defect any dataset would produce | A domain unit, a market, a sensor layout, a business threshold |
+| A measured platform fact: registry accounts, an SDK import that fails, a container port | An instance type or hyperparameter that suited one model |
+
+The test for the first column is whether a reader could reconstruct the project
+from it. The test for the second is whether the rule survives changing the
+problem.
+
+**A validation run's role is to be a test case, not a source.** It shows that a
+rule is needed, and it shows whether a rule that exists actually fires. It does not
+supply the rule's text. The nine stages a real 17-task run implemented from first
+principles produced 2,683 lines of working code, in the China partition, against a
+live control plane — and none of it is skill material, because all of it answers
+"how do I process this dataset" rather than "how does a SageMaker processing job
+work".
+
+### The three-domain check
+
+Every skill is checked against three problems that share nothing but SageMaker:
+
+1. **Tabular classification** — churn or fraud, no time axis, class imbalance.
+2. **Time-series forecasting** — a horizon, a prediction time, chronological splits.
+3. **Unstructured deep learning** — images or text, a framework container, GPU
+   instances, no feature columns at all.
+
+A rule that cannot be stated for all three is a rule borrowed from one project.
+Either generalise it, or move it into an explicitly labelled per-domain section so
+a reader can see it does not apply to them. What is not acceptable is leaving it in
+the general body where it reads as universal.
+
+This is how the audit that let two skills be copied byte-for-byte was framed, and
+it caught a real leak: 37 lines of forecasting vocabulary in the planner, against 2
+and 1 in the two that travelled unchanged.
+
 ## The stage catalogue
 
 Ordering is a prerequisite chain: each stage's output is the next one's required
@@ -102,6 +152,62 @@ teaches how to compose steps into a `Pipeline` — ordering, parameterisation,
 caching, resuming, and turning Experiments auto-registration off. Calling a stage
 alone and composing stages into a pipeline are two uses of the same skills, not
 two bodies of content.
+
+## Roadmap
+
+Five of fourteen skills exist. The table above is the design; this is the order it
+gets built in and the reason for that order. It lives here rather than in a
+conversation because a workflow that insists decisions be written where a later
+reader can find them should not except its own.
+
+`plan-lint.py` prints the remaining gap as a count on every run — `N stage(s) owned
+by no skill yet` — so the backlog is visible from inside a plan and not only here.
+
+### Phase one — done
+
+`ml-planning`, `leakage-guard`, `runtime-and-containers`, `governed-release`,
+`dont-rebuild-what-you-can-read`. The planner plus the two cross-cutting refusals
+plus the two skills that travelled unchanged. Enough to run a real end-to-end build
+with the remaining stages improvised, which is what the validation runs did.
+
+### Phase two — the execution chain
+
+In dependency order, because each one's output is the next one's input:
+
+```
+data-processing → baseline-first → model-training
+    → hyperparameter-tuning → evaluation-and-gate → sagemaker-pipeline
+```
+
+Two orderings here are deliberate and were both arrived at the hard way.
+
+**`baseline-first` before `model-training`.** A model cannot be judged before
+something exists to judge it against, and a run that trains first treats whatever
+number it gets as the result. Building the training skill first would encode that
+order into the workflow.
+
+**`sagemaker-pipeline` last, not first.** It composes the five stages above it, and
+writing an orchestrator before the things it orchestrates reproduces exactly the
+failure this power's linter refuses: a plan that promises what nothing implements.
+An earlier draft of this roadmap had it first; that was wrong for that reason.
+
+### Phase three — the stages with no validated reference yet
+
+`dataset-contract`, `batch-inference`, `realtime-inference`.
+
+These are last because no run has exercised them end to end. Dataset registration
+has been done inline rather than as its own stage; batch inference has been planned
+but not executed; a real-time endpoint has only ever been skipped as out of scope
+for a batch serving mode. Writing guidance for a stage nothing has run is how a
+skill acquires plausible instructions that do not work.
+
+### What gates each phase
+
+A skill ships when it passes the three-domain check above, its refusals have a test
+that proves they fire, and `validate.py` plus `plan-lint.py` still pass. Adding a
+skill also means removing its name from the "not yet implemented" list in
+`ml-planning` and confirming `stage-catalogue.txt` still agrees with `skills/` —
+`validate.py` fails if it does not.
 
 ## Runtime modes: BYOS, BYOC, BYOM
 
