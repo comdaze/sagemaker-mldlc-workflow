@@ -306,10 +306,16 @@ python3 scripts/validate.py --refresh  # re-fetch the schema first
 
 Validates `plugin.json` against the [Agent Plugins 1.0.0](https://agent-plugins.org/)
 schema, checks that every skill has a `SKILL.md` whose frontmatter `name` matches its
-directory, and cross-checks the stage catalogue against `skills/` and against
-`ml-planning`'s own stage table. A schema it cannot load is a hard failure, not a
-warning — a validator reporting success while skipping its main check is worse than no
-validator.
+directory, cross-checks the stage catalogue against `skills/` and against
+`ml-planning`'s own stage table, and **fails when a git-ignored file is sitting in the
+tree**. A schema it cannot load is a hard failure, not a warning — a validator reporting
+success while skipping its main check is worse than no validator.
+
+That last check exists because `.gitignore` protects the repository and not the artefact:
+**"Import power from a folder" copies the working directory**, so a file ignored because
+it is machine-local gets packaged anyway. One machine's editor settings shipped inside an
+installed copy of this power twice before the check existed. Run `validate.py` before
+importing and the rule holds without anyone remembering it.
 
 Five skills ship a check of their own. Each corresponds to rules in its skill body, and
 each exists as a script rather than as prose for one reason: **a rule that can refuse

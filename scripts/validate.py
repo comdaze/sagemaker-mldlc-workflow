@@ -167,6 +167,65 @@ def check_stage_catalogue() -> None:
                 )
 
 
+def check_import_cleanliness() -> None:
+    """Nothing outside version control is sitting in the tree waiting to be packaged.
+
+    Kiro's "Import power from a folder" copies the WORKING DIRECTORY, not the git tree.
+    `.gitignore` therefore protects the repository and not the artefact: a file ignored
+    because it is machine-local gets packaged into the installed power anyway.
+
+    This is not hypothetical. `.kiro/settings/cli.json` -- one machine's editor settings,
+    ignored on purpose -- was packaged into an installed copy of this power, twice. It was
+    caught the second time only because someone happened to look.
+
+    So the rule that would otherwise be "remember to run git status before importing" is
+    this check instead, in the script you already run before importing. An IGNORED file
+    fails: it is ignored precisely because it should not ship. An UNTRACKED file warns,
+    because work in progress is normal and only the author knows whether it belongs.
+    """
+    if not (ROOT / ".git").exists():
+        warn("not a git repository, so import cleanliness cannot be checked")
+        return
+
+    try:
+        out = subprocess.run(
+            ["git", "status", "--porcelain", "--ignored"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        warn(f"could not run git status, so import cleanliness is unchecked: {e}")
+        return
+
+    if out.returncode != 0:
+        warn(f"git status failed ({out.returncode}), so import cleanliness is unchecked")
+        return
+
+    ignored, untracked = [], []
+    for line in out.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        code, path = line[:2], line[3:].strip()
+        if code == "!!":
+            ignored.append(path)
+        elif code == "??":
+            untracked.append(path)
+
+    for p in ignored:
+        fail(
+            f"{p} is ignored by git but present in the tree. 'Import power from a folder' "
+            "copies the working directory, so an ignored file ships anyway -- and it is "
+            "ignored because it should not. Remove it before importing."
+        )
+    for p in untracked:
+        warn(
+            f"{p} is untracked and would be packaged by a folder import. Commit it or "
+            "remove it, so the installed power matches the repository."
+        )
+
+
 def check_power_md(path: Path) -> bool:
     """Cross-check the legacy POWER.md manifest against plugin.json.
 
@@ -374,6 +433,7 @@ def main() -> int:
     check_no_escaping_paths()
     has_power_md = check_power_md(ROOT / "POWER.md")
     check_stage_catalogue()
+    check_import_cleanliness()
 
     for w in warnings:
         print(f"WARN  {w}")
