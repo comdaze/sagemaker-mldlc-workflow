@@ -69,14 +69,61 @@ Every skill is checked against three problems that share nothing but SageMaker:
 3. **Unstructured deep learning** — images or text, a framework container, GPU
    instances, no feature columns at all.
 
-A rule that cannot be stated for all three is a rule borrowed from one project.
-Either generalise it, or move it into an explicitly labelled per-domain section so
-a reader can see it does not apply to them. What is not acceptable is leaving it in
-the general body where it reads as universal.
+A rule that cannot be stated for all three is a rule borrowed from one project. What
+happens to it next is the subject of the next section, and it is not deletion.
 
 This is how the audit that let two skills be copied byte-for-byte was framed, and
 it caught a real leak: 37 lines of forecasting vocabulary in the planner, against 2
 and 1 in the two that travelled unchanged.
+
+### Where domain material goes: `SKILL.md` decides, `references/` explains
+
+Failing the three-domain check is not grounds for deleting content. Correlation
+thresholds are the right leakage test for a scalar input and meaningless for an
+image; publication-time-versus-observation-time is essential for a temporal source
+and absent from a churn table. All of it is true and useful. It just is not
+universal, and a skill body that presents it as universal misleads two readers out
+of three.
+
+The skill format already answers this. Quoting the authoring guidance this power
+follows:
+
+> **Avoid duplication**: Information should live in either SKILL.md or references
+> files, not both. **Prefer references files** for detailed information unless it's
+> truly core to the skill […] Keep only essential procedural instructions and
+> workflow guidance in SKILL.md; **move detailed reference material, schemas, and
+> examples to references files.**
+
+So each skill is two layers, and the split is a specific one:
+
+| Layer | Holds | Loaded |
+|---|---|---|
+| `SKILL.md` | What the rule is. Whether it is a refusal. What happens when it fires. The decision procedure. | Every time the skill triggers |
+| `references/<domain>.md` | How to measure it in one modality. Statistics, thresholds, probe constructions, per-domain examples. | Only when the agent judges it needed |
+
+The dividing question is **"what do I do" versus "how do I measure it"**. The first
+is the same in all three domains and belongs in the body. The second differs per
+modality and belongs in a reference.
+
+**A refusal never moves to a reference.** This is the failure mode the split is
+designed to prevent, and it was proposed in a real audit: because correlation does
+not apply to images, generalise the rule to "unusually predictive inputs require
+provenance review". That trades this power's core mechanism for tidiness. A
+constraint written as a refusal survives into the artefacts; the same constraint
+written as a review suggestion holds by luck. So the body keeps *this is a refusal
+and it does not proceed*, and the reference supplies *and here is the statistic for
+your modality*.
+
+Two consequences worth stating, because both are improvements rather than costs.
+Domain material can be **more** detailed once it is out of the body, since it no
+longer competes for the context every invocation pays for. And a reader working on
+one of the other two domains never sees it — which is the actual goal, since the
+harm was never that the content existed.
+
+`ml-planning/references/china-baseline.md` is the pattern already in use: the
+capability matrix lives there, the body carries one instruction to read it before
+proposing anything. Where a reference grows past roughly ten thousand words, put
+grep patterns in the body rather than expecting it to be read whole.
 
 ## The stage catalogue
 
@@ -203,11 +250,43 @@ skill acquires plausible instructions that do not work.
 
 ### What gates each phase
 
-A skill ships when it passes the three-domain check above, its refusals have a test
-that proves they fire, and `validate.py` plus `plan-lint.py` still pass. Adding a
-skill also means removing its name from the "not yet implemented" list in
-`ml-planning` and confirming `stage-catalogue.txt` still agrees with `skills/` —
-`validate.py` fails if it does not.
+A skill ships when all five hold:
+
+1. **It passes the three-domain check**, and everything that failed the check sits in
+   `references/` rather than in the body or the bin.
+2. **Its refusals are in `SKILL.md`, not in a reference**, and each has a test that
+   proves it fires. A screen that has never refused anything is indistinguishable
+   from a screen with a sign error, and both report PASS.
+3. **The body carries no statistic, threshold or probe construction that is specific
+   to one modality.** Those are the reference layer's job. The body says a bound
+   exists, that crossing it is a refusal, and where the bound is declared.
+4. **`validate.py` and `plan-lint.py` still pass**, including the catalogue
+   cross-check — `validate.py` fails when `stage-catalogue.txt` and `skills/` disagree.
+5. **`ml-planning`'s "not yet implemented" list no longer names it**, so the plan's
+   own account of its coverage stays true.
+
+Written this way, four of the five are checkable by someone other than the author.
+The third needs judgement, and this is the cheap version of that judgement:
+
+```bash
+grep -niE 'correlation|AUC|mutual information|ml\.[a-z0-9]+\.[a-z]|rng\.normal|0\.9[0-9]|chronological|timestamp' \
+     skills/*/SKILL.md
+```
+
+A hit is not automatically a violation — a body may say *a correlation bound exists
+and crossing it refuses* without saying what the bound is or how to compute it. But
+every hit has to be argued for, and most cannot be. Run against the five skills of
+phase one it returns 26 lines: 16 in `leakage-guard`, 6 in `governed-release`, 3 in
+`ml-planning`, 1 in `dont-rebuild-what-you-can-read`, and 0 in
+`runtime-and-containers` — which is the one skill that was written with the
+measurement layer already somewhere else.
+
+**Skills built in phase two are written in two layers from the start.** Writing one
+flat and splitting it later is how the first five ended up needing an audit: the
+body is the path of least resistance, so material lands there and stays. The audit
+that produced this section found 30 items in one 242-line skill, and roughly ten of
+them were the same defect repeated — a modality-specific measurement stated as a
+universal rule.
 
 ## Runtime modes: BYOS, BYOC, BYOM
 
