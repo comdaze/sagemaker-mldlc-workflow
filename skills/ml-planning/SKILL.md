@@ -167,7 +167,7 @@ The stage catalogue is the design; some of it is not built. As of version 0.1.0 
 skills that exist are `ml-planning`, `leakage-guard`, `runtime-and-containers`,
 `release-and-serve` and `monitor-and-retrain` — the last two being renamed to
 `release-and-serve` and `monitor-and-retrain` as they absorb their remaining stages.
-`train-and-tune` and `evaluate-and-gate` do not exist yet.
+`evaluate-and-gate` does not exist yet.
 
 **So when a plan reaches one of them, say that plainly** and either proceed from first
 principles while noting the gap, or stop and ask. Do not present improvised guidance as
