@@ -270,7 +270,7 @@ py3`. Do not carry a v2 call site over unchanged.
 
 A tag is a moving pointer. An image referenced by tag makes rollback a fiction,
 because the tag may resolve to different bytes next week. Resolve the tag once,
-record the digest, and use the digest in the release candidate — `governed-release`
+record the digest, and use the digest in the release candidate — `release-and-serve`
 requires `imageDigest` as one leg of its provenance triple for exactly this reason.
 
 ## Distributed and accelerator images
@@ -296,7 +296,7 @@ In order, because the cheap checks eliminate most cases:
 3. **For inference: does `/ping` answer on 8080?** Run the container locally and
    `curl` it before blaming SageMaker.
 4. **For training: did anything reach `/opt/ml/model`?** A job can exit 0 having
-   written nothing. `governed-release`'s first gate exists for this: success means
+   written nothing. `release-and-serve`'s first gate exists for this: success means
    exit code zero **and** the declared artefacts exist.
 5. **Read the failure description**, not only the job status. `/opt/ml/failure` and
    the CloudWatch log stream carry the actual error; `FailureReason` on the job is

@@ -37,7 +37,7 @@ Model Monitor is also unavailable for new use, but that is **not** a China
 limitation: ten SageMaker features entered maintenance mode globally on
 2026-07-30 and are closed to new customers, Model Monitor among them. Treat drift
 monitoring as yours to build in every partition — see
-`dont-rebuild-what-you-can-read`.
+`monitor-and-retrain`.
 
 ## Present and working
 
@@ -58,7 +58,7 @@ partition. Everything goes through control-plane APIs, which work fully.
 This is worth stating positively rather than as a lament: an agent-driven workflow
 calls APIs anyway. The constraint pushes toward exactly the shape this power
 wants — but it does mean a human cannot fall back on clicking, so anything a
-person must approve needs an approval surface you built. `governed-release`
+person must approve needs an approval surface you built. `release-and-serve`
 assumes precisely that.
 
 ## Registry accounts are not one table

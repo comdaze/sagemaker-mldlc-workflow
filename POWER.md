@@ -48,9 +48,9 @@ and the plan linter refuses a task attributed to a missing one.
   was knowable at prediction time, and refuses a feature that nearly *is* the target
 - `runtime-and-containers` — the five runtime modes, the SageMaker container contract,
   image resolution per partition, and the SDK v2/v3 gate
-- `governed-release` — provenance pinned as code, data and image digests; three gates
+- `release-and-serve` — provenance pinned as code, data and image digests; three gates
   that check evidence rather than status fields; approval split three ways
-- `dont-rebuild-what-you-can-read` — whether a missing managed capability should be
+- `monitor-and-retrain` — whether a missing managed capability should be
   self-built or read from an API you already have
 
 ## Install — importing is not enough

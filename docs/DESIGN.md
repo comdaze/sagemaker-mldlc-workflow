@@ -215,8 +215,8 @@ it returns.
 | `data-pipeline` | 3, 5 | ~200 | ✔ | to build |
 | `train-and-tune` | 6, 7, 8 | ~250 | ✔ | to build |
 | `evaluate-and-gate` | 9, 10 | ~200 | ✔ | to build |
-| `release-and-serve` | 11, 12, 13, 14 | 306 → ~400 | ✔ | rename of `governed-release`, absorbing 13 and 14 |
-| `monitor-and-retrain` | 15, 16 | 178 → ~220 | ✔ | rename of `dont-rebuild-what-you-can-read`, absorbing 16 |
+| `release-and-serve` | 11, 12, 13, 14 | 306 → ~400 | ✔ | rename of `release-and-serve`, absorbing 13 and 14 |
+| `monitor-and-retrain` | 15, 16 | 178 → ~220 | ✔ | rename of `monitor-and-retrain`, absorbing 16 |
 
 Eight skills, roughly 2,160 lines of body when complete, every file inside the cap.
 The fourteen-skill version projected 4,600.
@@ -229,10 +229,10 @@ scope presets still name stages rather than skills. And composing stages into a
 was `sagemaker-pipeline`'s reason for existing, and folding it into `ml-planning`
 keeps the property while removing the file.
 
-Two costs are real. `dont-rebuild-what-you-can-read` is at this writing still
+Two costs are real. `monitor-and-retrain` is at this writing still
 **byte-identical** to its source in `kiro-power-sagemaker-tabular-mlops`, which was
 deliberate: it made the predecessor a regression comparison. Renaming and extending it
-ends that. (`governed-release` already diverged by 48 lines when it gained a
+ends that. (`release-and-serve` already diverged by 48 lines when it gained a
 `gitCommit` fallback, so that property was gone there already.) And the skills carry 49
 cross-references to each other by name; every one pointing at a renamed skill has to
 move with it, which `validate.py` does not check — only the catalogue cross-check is
@@ -266,8 +266,8 @@ cross-references it.
 
 ### Step 3 — the two renames
 
-`governed-release` → `release-and-serve`, absorbing batch and real-time inference.
-`dont-rebuild-what-you-can-read` → `monitor-and-retrain`, absorbing the retraining
+`release-and-serve` → `release-and-serve`, absorbing batch and real-time inference.
+`monitor-and-retrain` → `monitor-and-retrain`, absorbing the retraining
 decision. Both carry their existing content forward; the work is the new stages and
 the 49 cross-references.
 

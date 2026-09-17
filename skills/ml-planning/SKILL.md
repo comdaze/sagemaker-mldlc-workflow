@@ -165,7 +165,7 @@ below.
 
 The stage catalogue is the design; some of it is not built. As of version 0.1.0 the
 skills that exist are `ml-planning`, `leakage-guard`, `runtime-and-containers`,
-`governed-release` and `dont-rebuild-what-you-can-read` — the last two being renamed to
+`release-and-serve` and `monitor-and-retrain` — the last two being renamed to
 `release-and-serve` and `monitor-and-retrain` as they absorb their remaining stages.
 `data-pipeline`, `train-and-tune` and `evaluate-and-gate` do not exist yet.
 
@@ -375,7 +375,7 @@ guidance here, it belongs in the stage's skill.
   *knowledge* — how the work is done, changing only when someone revises them.
   `PLAN.md` and everything SageMaker reports are *state* — where the work got to.
   Never copy state into a contract, and never treat a stale plan as a rule. The
-  same split appears one layer down in `dont-rebuild-what-you-can-read`: mirror
+  same split appears one layer down in `monitor-and-retrain`: mirror
   invariants, read mutable state live.
 
 ## Asking well: produce it yourself, or offer a default
@@ -474,7 +474,7 @@ one never claimed.
 ```markdown
 ## Constraints traded away
 
-- `governed-release` endpoint-config comparison — serving mode is batch
+- `release-and-serve` endpoint-config comparison — serving mode is batch
   transform, which has no endpoint config. Replaced by comparing the model
   package ARN, image digest and ModelDataUrl. Weaker: it does not catch a config
   changed out from under the release.

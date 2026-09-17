@@ -1,6 +1,6 @@
 ---
-name: governed-release
-description: Takes a registered model package to production through a provenance-pinned, governed release - a release candidate carrying code, data and image digests, a single correlation id re-asserted at every stage, a human approval gate whose decision only one governed component may write, and per-environment deploy with verification. Use when designing or debugging model release, approval, promotion between environments, deployment audit, or reproducibility of a shipped model. Applies in every partition; the approval UI matters most where the console has no Model Registry page.
+name: release-and-serve
+description: Takes a model from a passed quality gate to serving traffic - registration, a provenance-pinned governed release, batch inference, and real-time endpoints. Covers a release candidate carrying code, data and image digests, a single correlation id re-asserted at every stage, a human approval gate whose decision only one governed component may write, per-environment deploy with verification, and choosing between a batch job and an always-on endpoint. Use when designing or debugging model registration, release, approval, promotion between environments, batch scoring, endpoint deployment, deployment audit, or reproducibility of a shipped model. Applies in every partition; the approval UI matters most where the console has no Model Registry page.
 ---
 
 # Governed release
@@ -88,7 +88,7 @@ prevent.
 The candidate is where a mutable field gets smuggled in, and it always arrives
 disguised as convenience: *store the approval status here so the UI does not have
 to call `DescribeModelPackage`.* Mirroring it is the bug
-`dont-rebuild-what-you-can-read` describes, and a schema alone will not stop it —
+`monitor-and-retrain` describes, and a schema alone will not stop it —
 the person adding the field edits the schema in the same commit.
 
 So enforce it as a **name check that runs before schema validation**: normalise
@@ -266,7 +266,7 @@ product; `Completed` is a status.
 Two consequences of a batch mode worth stating in the plan rather than
 discovering later: it has **no data capture**, so production drift has nowhere to
 land until either a real-time endpoint with capture exists or the batch inputs are
-archived deliberately (see `dont-rebuild-what-you-can-read`); and there is no
+archived deliberately (see `monitor-and-retrain`); and there is no
 config-name comparison, so record in the plan which verification you traded away
 and what replaced it. A verification that degraded silently is worse than one that
 was never claimed.
@@ -274,6 +274,69 @@ was never claimed.
 Instance type and count come from the contract per environment. There is no
 right-sizing service to consult in the China partition, so this is a declared
 decision revised by measurement — not a gap some tool fills.
+
+## Choosing the serving mode — declare it, do not default to it
+
+Registration and release put an approved model somewhere. Serving decides how
+predictions actually get made, and the choice belongs in the contract as
+`spec.serving.mode` before anything is deployed.
+
+| | Batch inference | Real-time endpoint |
+|---|---|---|
+| Costs | per job, while it runs | continuously, whether or not anyone calls it |
+| Fits | scheduled scoring, a periodic forecast, backfills, anything whose consumer reads a table | a request that must be answered inside a user's wait |
+| Freshness | as fresh as the last run | as fresh as the request |
+| Gives you free | no capacity to manage | data capture, if enabled |
+
+**Default to batch and make the endpoint justify itself.** An always-on endpoint for a
+prediction consumed once a day is the most common avoidable cost in this workflow, and
+the cheapest thing to get wrong because nothing fails — it just bills. A trial run
+declared a daily batch forecast and skipped the endpoint stage entirely, recording the
+reason; that is the shape to copy.
+
+If neither is right — a request arriving unpredictably, at low volume, where minutes are
+acceptable — say so rather than picking the closer of the two. That is a real gap in
+what SageMaker offers cheaply in the China partition, where Serverless Inference does
+not exist.
+
+## Batch inference
+
+The job is not the deliverable; the **verified** output is.
+
+**Verify the model identity before trusting a single prediction.** A batch job takes a
+model name, and a model name is mutable. Assert that the model the job actually used
+carries the approved candidate's `modelPackageArn`, image digest and `modelDataUrl` —
+the same triple registration pinned. A batch run against yesterday's model looks exactly
+like a batch run against today's.
+
+**Refuse an incomplete input.** Whatever the prediction unit is — a day of intervals, a
+batch of records, a page of documents — declare its expected shape and assert it before
+submitting. A run that silently scores 71 of 96 intervals produces a file that opens
+cleanly and is wrong in a way no downstream check will catch.
+
+**Refuse an incomplete output, too.** Count the predictions, assert they are finite and
+unique on the key, and assert the count matches the input. Then archive the input, the
+output, the model identity and the error summary together — see `monitor-and-retrain`,
+which needs exactly that record to detect drift without the managed capability.
+
+## Real-time endpoints
+
+Only reached when the contract declares it. Three properties to establish before traffic
+arrives:
+
+**The container contract is the same one training used.** Port 8080, `POST /invocations`
+and `/ping`, and the timeouts `runtime-and-containers` documents. The frequent surprise
+is that an image which trains fine can still fail to serve, because serving exercises a
+code path training never runs.
+
+**Data capture is the only cheap way to know what production actually sent you.**
+Enable it at deploy time. Retrofitting it means a new endpoint config, and the traffic
+you wanted to inspect has already gone.
+
+**Sizing is a declared decision revised by measurement, not a task some skill performs.**
+The China partition has no Inference Recommender, so instance type and count are stated
+per environment in the contract and changed when measurement says to. Do not present a
+guess as a recommendation.
 
 ## Artefacts that cannot be deployed
 

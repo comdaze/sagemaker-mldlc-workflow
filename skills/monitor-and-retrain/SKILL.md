@@ -1,6 +1,6 @@
 ---
-name: dont-rebuild-what-you-can-read
-description: Decides whether a missing or retired SageMaker capability should be self-built or read from an API you already have - covering experiment tracking, drift monitoring, dashboards, lineage and endpoint sizing. Use BEFORE building any replacement for a managed capability that is absent, closed to new customers, or has no console page, and when deciding what state your platform should own versus read live. Applies in every partition; the AWS China partition just forces the decision sooner.
+name: monitor-and-retrain
+description: Watches a deployed model and decides when to retrain it - what evidence to archive per prediction, how to detect drift and degradation without the managed capability, when accumulated error or new labelled data justifies a new run, and where that run re-enters the workflow. Also decides whether a missing or retired SageMaker capability should be self-built or read from an API you already have, covering experiment tracking, drift monitoring, dashboards, lineage and endpoint sizing. Use after a model is serving, when monitoring or drift comes up, when deciding to retrain, and BEFORE building any replacement for a managed capability that is absent, closed to new customers, or has no console page. Applies in every partition; the AWS China partition just forces the decision sooner.
 ---
 
 # Don't rebuild what you can read
@@ -161,6 +161,41 @@ environment in the algorithm contract and revised by measurement.
 Be honest about this rather than implying automation exists. Declaring the answer
 in a reviewable contract is a legitimate engineering position; a home-grown
 load-testing harness nobody maintains is not obviously better.
+
+## Deciding to retrain, and where the new run re-enters
+
+Monitoring exists to answer one question: **is this model still good enough to keep
+using?** Retraining is what you do when the answer turns out to be no. Both live here
+because the evidence that triggers a retrain is the evidence monitoring collects.
+
+**Three triggers, declared in the contract, not judged ad hoc.**
+
+| Trigger | Declared as | Why it needs declaring |
+|---|---|---|
+| Observed error breaches the gate | the same bound `evaluate-and-gate` used | otherwise "it got worse" is an opinion |
+| Enough newly labelled data accumulated | a count or a span | otherwise retraining happens when someone remembers |
+| The input distribution moved | a drift statistic and a bound | otherwise drift is noticed only after the error arrives |
+
+The first is the strongest and the most often missing. A model whose live error can be
+compared against its own pre-registered bound tells you it has degraded without anyone
+inspecting a distribution — and the comparison is only possible if inference archived
+the predictions and the later observed outcomes. That is why the archival requirement in
+`release-and-serve` is not optional bookkeeping.
+
+**Re-enter at stage 3 or stage 5, not at stage 1.** New data means the dataset must be
+re-registered with a new immutable identity (stage 3); the same data reprocessed under a
+changed policy means re-entering at processing (stage 5). Either way the contract, the
+prediction time and the leakage policy carry forward unchanged unless a decision changed
+them — and if one did, that is a new contract and says so.
+
+**Keep the original test period as historical evidence and cut a new, later holdout.**
+Re-using the old holdout across retrains turns it into a tuning set one run at a time,
+and the decay is invisible: every individual run looks like it evaluated honestly.
+
+**A retrain is a full run of this workflow, not a shortcut through it.** The
+`retrain-existing` preset names which stages that means. A retrained model that skipped
+the leakage screen or the baselines has skipped the two checks most likely to catch what
+changed in the data.
 
 ## The decision procedure
 

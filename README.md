@@ -95,8 +95,8 @@ the single-stage skills teach how to write each step.
 | `ml-planning` | 1, 2, presets, `PLAN.md` | orchestrator | **exists** |
 | `leakage-guard` | 4 | ✔ | **exists** |
 | `runtime-and-containers` | cross-cutting: 5, 7, 13, 14 | ✔ | **exists** |
-| `governed-release` | 11, 12 | ✔ | **exists** |
-| `dont-rebuild-what-you-can-read` | 15 | ✔ | **exists** |
+| `release-and-serve` | 11, 12 | ✔ | **exists** |
+| `monitor-and-retrain` | 15 | ✔ | **exists** |
 | `dataset-contract` | 3 | ✔ | planned |
 | `data-processing` | 5 | ✔ | planned |
 | `baseline-first` | 6 | ✔ | planned |
@@ -147,7 +147,7 @@ own constraints rather than presenting them as equally binding:
 |---|---|---|
 | **Refusal** | honouring it produces code that declines to proceed, and a test can prove the refusal fires | the quality gate does not register a failing model · the leakage screen refuses a correlation above its declared bound · the SDK version gate stops on a mismatch · publish rejects an empty or `"null"` version id · the field-name denylist runs before schema validation · `plan-lint.py` on `PLAN.md` |
 | **Accounting** | it cannot refuse, but a missing decision becomes visible | `PARTITION` / `SDK` / `LAST_DONE` in the plan · `features.assumed[].reason` · `[S]` tasks carrying `skipped: <why>` · a declared serving mode · a gate's refusal carrying the command that fixes it · a substitution recorded under "Constraints traded away" |
-| **Advice** | nothing checks it; it holds while someone remembers | "prefer the least runtime mode you can get away with" · the five questions in `dont-rebuild-what-you-can-read` · this README staying in step with the skills |
+| **Advice** | nothing checks it; it holds while someone remembers | "prefer the least runtime mode you can get away with" · the five questions in `monitor-and-retrain` · this README staying in step with the skills |
 
 **And one class below all three: whether a skill loads at all.** Measured at roughly
 one plain request in two, with the same model and description (see
@@ -327,8 +327,8 @@ run when it cannot locate `skills/`, rather than skipping that check quietly.
   skills, also shaped for large-model fine-tuning.
 - **`kiro-power-sagemaker-tabular-mlops`** — this power's predecessor, kept rather
   than migrated: it carries a complete end-to-end validation record and serves as
-  the reference implementation and regression comparison. `governed-release` and
-  `dont-rebuild-what-you-can-read` come from it; the first differs from its source
+  the reference implementation and regression comparison. `release-and-serve` and
+  `monitor-and-retrain` come from it; the first differs from its source
   only in two cross-references, the second is byte-identical.
 
 ## Provenance and scope
