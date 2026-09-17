@@ -34,8 +34,8 @@ If you read nothing else in this file, do these four. Each is expanded below.
    session can resume from, and the linter is the only thing that checks the plan is
    coherent.
 
-Skipping 1 or 4 is the failure this list exists to prevent: a plan that never recorded
-which partition it targeted, or a run that left nothing to resume from.
+Skipping 1 or 4 is what this list prevents: a plan that never recorded its partition, or
+a run that left nothing to resume from.
 
 ## If you were asked to demonstrate this power rather than to build something
 
@@ -427,10 +427,7 @@ target*.
 
 **Name which layer you are delivering.** The methodology travels; the execution does
 not. A reduced deliverable is not automatically wrong — failing to say which layer it is,
-is.
-
-**The rule generalises past this power: a refusal may stop the work, but it may not
-quietly change what the work was.**
+is. **A refusal may stop the work; it may not quietly change what the work was.**
 
 `references/asking-and-blocking.md` has the message shape, a wrong-versus-right pair, and
 what each rule cost to discover. Read it before writing the message.
