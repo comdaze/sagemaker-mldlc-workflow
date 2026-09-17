@@ -66,9 +66,10 @@ So the shortest useful answer is:
   Three answers turn a fabricated walkthrough into a real plan.
 
 If the workspace does hold data, reading its header to ask a *sharper* question is
-good — "there are twelve `实时*` columns here; are any of them known at prediction
-time?" is worth more than a generic prompt. Reading it to assert what the target is,
-is not. The difference is whether the output is a question or a claim.
+good — naming the columns you suspect and asking whether they are knowable at
+prediction time beats a generic prompt, because it gives the user something concrete
+to correct. Reading it to assert what the target is, is not. The difference is
+whether the output is a question or a claim.
 
 ## Step 1: Establish the partition, the SDK, and the target
 
@@ -261,8 +262,8 @@ an endpoint" looked like the same thing.
 So a gate that ran and said no is `[!]`, and it carries two obligations:
 
 ```markdown
-10. [!] **Apply the quality gate** — refused: test MAE 56.37 exceeds the
-    pre-registered 48.59; `artifacts/quality-gate-report.json` records
+10. [!] **Apply the quality gate** — refused: test MAE 56.4 exceeds the
+    pre-registered bound of 48.6; `artifacts/quality-gate-report.json` records
     `registrationAllowed: false`. Waived for local composition only, by explicit
     user direction. blocks: 12, 13, 14 _(Stage: 10 | Skill: none; would be: evaluation-and-gate)_
 ```
