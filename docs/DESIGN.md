@@ -130,31 +130,66 @@ grep patterns in the body rather than expecting it to be read whole.
 Ordering is a prerequisite chain: each stage's output is the next one's required
 input. Stages marked **standalone** are the ones a user calls on their own.
 
-| # | Stage | SageMaker surface | Standalone |
-|---|---|---|---|
-| 1 | Frame the problem | — | |
-| 2 | Environment readiness | partition, quotas, capability probe | |
-| 3 | Register the dataset | versioned S3 identity | ✔ |
-| 4 | Leakage guard | — | ✔ |
-| 5 | Data processing | `ProcessingStep`, Feature Store | ✔ |
-| 6 | Baseline first | — | ✔ |
-| 7 | Training | `TrainingStep`: built-in / framework / custom container / distributed | ✔ |
-| 8 | Tuning | `TuningStep` | ✔ |
-| 9 | Evaluation | `ProcessingStep`, same image as training | ✔ |
-| 10 | Quality gate | `ConditionStep` | |
-| 11 | Model registration | `RegisterModel`, `PendingManualApproval` | |
-| 12 | Governed release | approval + provenance | ✔ |
-| 13 | Batch inference | `TransformStep` / Batch Transform | ✔ |
-| 14 | Real-time inference | endpoint, data capture | ✔ |
-| 15 | Monitoring | drift, and what not to self-build | ✔ |
-| 16 | Retraining | back to 3 or 5 | |
+**Sixteen stages, eight skills.** The two are deliberately not one-to-one — see
+"Why the stages and the skills are not one-to-one" below.
+
+| # | Stage | Owning skill | SageMaker surface | Standalone |
+|---|---|---|---|---|
+| 1 | Frame the problem | `ml-planning` | — | |
+| 2 | Environment readiness | `ml-planning` | partition, quotas, capability probe | |
+| 3 | Register the dataset | `data-pipeline` | versioned S3 identity | ✔ |
+| 4 | Leakage guard | `leakage-guard` | — | ✔ |
+| 5 | Data processing | `data-pipeline` | `ProcessingStep`, Feature Store | ✔ |
+| 6 | Baseline first | `train-and-tune` | — | ✔ |
+| 7 | Training | `train-and-tune` | `TrainingStep`: built-in / framework / custom container / distributed | ✔ |
+| 8 | Tuning | `train-and-tune` | `TuningStep` | ✔ |
+| 9 | Evaluation | `evaluate-and-gate` | `ProcessingStep`, same image as training | ✔ |
+| 10 | Quality gate | `evaluate-and-gate` | `ConditionStep` | |
+| 11 | Model registration | `release-and-serve` | `RegisterModel`, `PendingManualApproval` | |
+| 12 | Governed release | `release-and-serve` | approval + provenance | ✔ |
+| 13 | Batch inference | `release-and-serve` | `TransformStep` / Batch Transform | ✔ |
+| 14 | Real-time inference | `release-and-serve` | endpoint, data capture | ✔ |
+| 15 | Monitoring | `monitor-and-retrain` | drift, and what not to self-build | ✔ |
+| 16 | Retraining | `monitor-and-retrain` | back to 3 or 5 | |
+
+Two cross-cutting skills own no numbered stage because they apply at several:
+`runtime-and-containers` (what runs your code, at stages 5, 7, 9, 13, 14) and
+pipeline composition, which belongs to `ml-planning` — the planner decides the stage
+sequence, and composing that sequence into a `Pipeline` object is the same decision
+expressed as code rather than as `PLAN.md`.
+
+The machine-readable form is `skills/ml-planning/references/stage-catalogue.txt`,
+which `plan-lint.py` reads to derive each task's expected owner and `validate.py`
+cross-checks against both this table and `skills/`. Three copies of one list drift;
+two of the three are checked.
 
 Stage 6 exists because of a specific failure: in a validation run the pipeline
 reported MAE 18.8 against a gate of 130 and every structural check passed, while
 a single leaking column used **directly as the prediction** scored MAE 14.2. Had
-the flow been required to state the naive baselines first — predict the mean
-(182.7), predict yesterday at the same time (137.1) — the result would have been
-suspect on sight.
+the flow been required to state the naive baselines first — 182.7 for the mean, 137.1
+for the simplest domain-valid reference — the result would have been suspect on sight.
+
+## Why the stages and the skills are not one-to-one
+
+The first version of this design made them one-to-one: sixteen stages, fourteen
+skills. That was wrong, and the measurements say so from three directions.
+
+**The format has a cap.** The authoring guidance keeps a `SKILL.md` body under 500
+lines because it loads on every trigger. The five phase-one skills average 328 lines,
+`ml-planning` is 591 and already over, and fourteen skills at that average projects to
+roughly 4,600 lines of body. Eight skills sized to fit projects to about 2,160.
+
+**The established frameworks group.** CRISP-DM has organised roughly two dozen tasks
+under six phases since 1996, and CRISP-ML(Q) and Oracle's ML process both keep six.
+The stage list is a checklist and a checklist is cheap; a file per checklist item is
+not. Sixteen stages map onto the six standard phases without remainder, which is why
+the stage numbers survived the consolidation unchanged.
+
+**AI-DLC does more with less text.** The power this one is modelled on ships 39 skills
+whose median body is 43 lines, 2,058 in total, covering a larger lifecycle. It manages
+that because each stage skill is a thin wrapper that delegates to an engine — the rules
+live in code and data, not in prose. That is the architectural lesson, and it is why
+each new skill here ships with a script rather than a longer description of one.
 
 ## Scope presets
 
@@ -172,121 +207,120 @@ it returns.
 
 ## Skills
 
-| Skill | Stages | Standalone | Origin |
-|---|---|---|---|
-| `ml-planning` | 1, 2, presets, `PLAN.md` | orchestrator | rewritten from the `forecast-planning` in `kiro-power-sagemaker-tabular-mlops` |
-| `dataset-contract` | 3 | ✔ | extracted from that power's `contracts.md` |
-| `leakage-guard` | 4 | ✔ | generalised from the same power |
-| `runtime-and-containers` | cross-cutting: 5, 7, 13, 14 | ✔ | new |
-| `data-processing` | 5 | ✔ | new |
-| `baseline-first` | 6 | ✔ | new |
-| `model-training` | 7 | ✔ | rewritten from `tabular-training` |
-| `hyperparameter-tuning` | 8 | ✔ | new |
-| `evaluation-and-gate` | 9, 10 | ✔ | split out of `tabular-training` |
-| `sagemaker-pipeline` | composes 5–11 | orchestrator | new |
-| `batch-inference` | 13 | ✔ | new |
-| `realtime-inference` | 14 | ✔ | new |
-| `governed-release` | 11, 12 | ✔ | **copied unchanged** |
-| `dont-rebuild-what-you-can-read` | 15 | ✔ | **copied unchanged** |
+| Skill | Stages | Body | Standalone | Status |
+|---|---|---:|---|---|
+| `ml-planning` | 1, 2, presets, `PLAN.md`, pipeline composition | 591 → ~320 | orchestrator | exists, over the 500-line cap, absorbs pipeline composition |
+| `leakage-guard` | 4 | 260 | ✔ | exists, two-layer, unchanged by this consolidation |
+| `runtime-and-containers` | cross-cutting: 5, 7, 9, 13, 14 | 309 | ✔ | exists, unchanged |
+| `data-pipeline` | 3, 5 | ~200 | ✔ | to build |
+| `train-and-tune` | 6, 7, 8 | ~250 | ✔ | to build |
+| `evaluate-and-gate` | 9, 10 | ~200 | ✔ | to build |
+| `release-and-serve` | 11, 12, 13, 14 | 306 → ~400 | ✔ | rename of `governed-release`, absorbing 13 and 14 |
+| `monitor-and-retrain` | 15, 16 | 178 → ~220 | ✔ | rename of `dont-rebuild-what-you-can-read`, absorbing 16 |
 
-Two skills are copied byte-for-byte because they are already free of any
-domain or task assumption: an audit found 2 and 1 lines respectively touching
-forecasting vocabulary, against 37 in the planner.
+Eight skills, roughly 2,160 lines of body when complete, every file inside the cap.
+The fourteen-skill version projected 4,600.
 
-`sagemaker-pipeline` is the load-bearing one for the "use SageMaker Pipeline
-properly" requirement. The single-stage skills teach how to write one step; it
-teaches how to compose steps into a `Pipeline` — ordering, parameterisation,
-caching, resuming, and turning Experiments auto-registration off. Calling a stage
-alone and composing stages into a pipeline are two uses of the same skills, not
-two bodies of content.
+Two properties of the earlier design are preserved and worth stating, because a
+consolidation is where they get lost. Every stage marked standalone is still callable
+alone: a skill covering four stages is still invoked for just batch inference, and the
+scope presets still name stages rather than skills. And composing stages into a
+`Pipeline` is still two uses of the same content rather than two bodies of it — that
+was `sagemaker-pipeline`'s reason for existing, and folding it into `ml-planning`
+keeps the property while removing the file.
+
+Two costs are real. `dont-rebuild-what-you-can-read` is at this writing still
+**byte-identical** to its source in `kiro-power-sagemaker-tabular-mlops`, which was
+deliberate: it made the predecessor a regression comparison. Renaming and extending it
+ends that. (`governed-release` already diverged by 48 lines when it gained a
+`gitCommit` fallback, so that property was gone there already.) And the skills carry 49
+cross-references to each other by name; every one pointing at a renamed skill has to
+move with it, which `validate.py` does not check — only the catalogue cross-check is
+mechanical.
 
 ## Roadmap
 
-Five of fourteen skills exist. The table above is the design; this is the order it
-gets built in and the reason for that order. It lives here rather than in a
-conversation because a workflow that insists decisions be written where a later
-reader can find them should not except its own.
+Three of eight skills exist and one of the three is over the line cap. The table above
+is the design; this is the order it gets built in and the reason for that order. It
+lives here rather than in a conversation because a workflow that insists decisions be
+written where a later reader can find them should not except its own.
 
-`plan-lint.py` prints the remaining gap as a count on every run — `N stage(s) owned
-by no skill yet` — so the backlog is visible from inside a plan and not only here.
+Two mechanical progress indicators, so the backlog is not a prose list anyone has to
+trust. `validate.py` fails while `stage-catalogue.txt`, `skills/` and the stage table
+disagree — it is red right now, and the red names exactly what is missing. And
+`plan-lint.py` prints `N stage(s) owned by no skill yet` on every run, so the gap is
+visible from inside a plan.
 
-### Phase one — done
+### Step 1 — record the design, and let the checks go red
 
-`ml-planning`, `leakage-guard`, `runtime-and-containers`, `governed-release`,
-`dont-rebuild-what-you-can-read`. The planner plus the two cross-cutting refusals
-plus the two skills that travelled unchanged. Enough to run a real end-to-end build
-with the remaining stages improvised, which is what the validation runs did.
+Rewrite `stage-catalogue.txt` and this document first. `validate.py` then fails with
+one line per skill that exists but owns no stage, and one warning per catalogue name
+the stage table does not mention. That output is the todo list, generated rather than
+maintained.
 
-### Phase two — the execution chain
+### Step 2 — bring `ml-planning` inside the cap
 
-In dependency order, because each one's output is the next one's input:
+591 lines against a 500-line limit, and it has to absorb pipeline composition on top.
+This is first because it is the only current violation, and because every other skill
+cross-references it.
+
+### Step 3 — the two renames
+
+`governed-release` → `release-and-serve`, absorbing batch and real-time inference.
+`dont-rebuild-what-you-can-read` → `monitor-and-retrain`, absorbing the retraining
+decision. Both carry their existing content forward; the work is the new stages and
+the 49 cross-references.
+
+### Step 4 — the three new skills, in dependency order
 
 ```
-data-processing → baseline-first → model-training
-    → hyperparameter-tuning → evaluation-and-gate → sagemaker-pipeline
+data-pipeline → train-and-tune → evaluate-and-gate
 ```
 
-Two orderings here are deliberate and were both arrived at the hard way.
+Baselines sit inside `train-and-tune` and come before training within it, because a
+model cannot be judged before something exists to judge it against and a run that
+trains first treats whatever number it gets as the result.
 
-**`baseline-first` before `model-training`.** A model cannot be judged before
-something exists to judge it against, and a run that trains first treats whatever
-number it gets as the result. Building the training skill first would encode that
-order into the workflow.
+Each ships with a script from the start, not a description of one:
+`leakage-screen.py`, `contract-check.py`, `baselines.py`, `quality-gate.py`. A script
+is deterministic, it is executable without loading into context, and it is the only
+form in which a rule becomes a refusal rather than a paragraph. `plan-lint.py` is the
+existing proof: 541 lines of code that replaced prose nobody would have checked.
 
-**`sagemaker-pipeline` last, not first.** It composes the five stages above it, and
-writing an orchestrator before the things it orchestrates reproduces exactly the
-failure this power's linter refuses: a plan that promises what nothing implements.
-An earlier draft of this roadmap had it first; that was wrong for that reason.
-
-### Phase three — the stages with no validated reference yet
-
-`dataset-contract`, `batch-inference`, `realtime-inference`.
-
-These are last because no run has exercised them end to end. Dataset registration
-has been done inline rather than as its own stage; batch inference has been planned
-but not executed; a real-time endpoint has only ever been skipped as out of scope
-for a batch serving mode. Writing guidance for a stage nothing has run is how a
-skill acquires plausible instructions that do not work.
-
-### What gates each phase
+### What gates each skill
 
 A skill ships when all five hold:
 
 1. **It passes the three-domain check**, and everything that failed the check sits in
    `references/` rather than in the body or the bin.
-2. **Its refusals are in `SKILL.md`, not in a reference**, and each has a test that
-   proves it fires. A screen that has never refused anything is indistinguishable
-   from a screen with a sign error, and both report PASS.
-3. **The body carries no statistic, threshold or probe construction that is specific
-   to one modality.** Those are the reference layer's job. The body says a bound
-   exists, that crossing it is a refusal, and where the bound is declared.
-4. **`validate.py` and `plan-lint.py` still pass**, including the catalogue
-   cross-check — `validate.py` fails when `stage-catalogue.txt` and `skills/` disagree.
-5. **`ml-planning`'s "not yet implemented" list no longer names it**, so the plan's
-   own account of its coverage stays true.
+2. **Its refusals are in `SKILL.md`, not in a reference or a comment**, and each has a
+   test that proves it fires. A screen that has never refused anything is
+   indistinguishable from a screen with a sign error, and both report PASS.
+3. **The body is under 500 lines** and carries no statistic, threshold or probe
+   construction specific to one modality. Those are the reference layer's job.
+4. **`validate.py` and `plan-lint.py` pass**, including the catalogue cross-check.
+5. **`ml-planning`'s "not yet implemented" list no longer names it.**
 
-Written this way, four of the five are checkable by someone other than the author.
-The third needs judgement, and this is the cheap version of that judgement:
+Four of the five are checkable by someone other than the author. The third needs
+judgement, and this is the cheap version of it:
 
 ```bash
 grep -niE 'correlation|AUC|mutual information|ml\.[a-z0-9]+\.[a-z]|rng\.normal|0\.9[0-9]|chronological|timestamp' \
      skills/*/SKILL.md
 ```
 
-A hit is not automatically a violation — a body may say *a correlation bound exists
-and crossing it refuses* without saying what the bound is or how to compute it. But
-every hit has to be argued for, and most cannot be. Run against the five skills of
-phase one it returns 26 lines: 16 in `leakage-guard`, 6 in `governed-release`, 3 in
-`ml-planning`, 1 in `dont-rebuild-what-you-can-read`, and 0 in
-`runtime-and-containers` — which is the one skill that was written with the
-measurement layer already somewhere else.
+A hit is not automatically a violation — a body may say *a bound exists and crossing it
+refuses* without saying what the bound is. But every hit has to be argued for, and most
+cannot be. On the three existing skills it returns 4 in `leakage-guard` (the measured
+argument, a failure-mode row, a strategy enum), 6 in the skill becoming
+`release-and-serve`, 3 in `ml-planning`, 1 in the skill becoming `monitor-and-retrain`,
+and 0 in `runtime-and-containers` — which is the only one whose measurement layer
+already lives elsewhere. That 0 is the target shape.
 
-**Skills built in phase two are written in two layers from the start.** Writing one
-flat and splitting it later is how the first five ended up needing an audit: the
-body is the path of least resistance, so material lands there and stays. The audit
-that produced this section found 30 items in one 242-line skill, and roughly ten of
-them were the same defect repeated — a modality-specific measurement stated as a
-universal rule.
+**Every new skill is written in two layers from the start.** Writing one flat and
+splitting it later is how phase one came to need an audit: the body is the path of
+least resistance, so material lands there and stays. The audit found 30 items in one
+242-line skill, about ten of them the same defect repeated.
 
 ## Runtime modes: BYOS, BYOC, BYOM
 
@@ -465,9 +499,11 @@ region, so bundling would push it onto every user.
 
 These are not new inventions and they are not re-litigated here:
 
-- `PLAN.md` as the state of the work, with six per-task states
-  (`[ ] [-] [?] [R] [x] [S]`), a `PARTITION` line and a `LAST_DONE` cursor,
-  checked by `scripts/plan-lint.py`.
+- `PLAN.md` as the state of the work, with seven per-task states
+  (`[ ] [-] [?] [R] [x] [S] [!]`), a `PARTITION` line and a `LAST_DONE` cursor,
+  checked by `skills/ml-planning/scripts/plan-lint.py`. `[!]` was added after a real
+  run recorded a refused quality gate as `[S] skipped`, which made a blocked release
+  read as a scope decision.
 - Constraints classified as **Refusal**, **Accounting** or **Advice**, with the
   plan required to record which ones were traded away and what replaced them.
 - Asking well: never ask for a value your own next action would produce; every
