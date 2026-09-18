@@ -180,5 +180,49 @@ c["derivedFrom"]["baseline"] = "same period yesterday"
 rc, out, rep = gate(c, "wrongbase")
 case("a derivation naming a different baseline, so the arithmetic fails, is refused", rc == 2, out[:300])
 
+print("\n=== 5. the tuning method is the user's choice, and both must be possible ===")
+H = "ab" * 32
+BASE_R = {"metric": "mae",
+          "computed": [{"name": "mean", "score": 180.0}, {"name": "yest", "score": 140.0}],
+          "strongest": "yest",
+          "quality": {"metric": "mae", "bound": 138.6, "marginPct": 1.0,
+                      "derivedFrom": "yest", "contract": "contracts/q.json"}}
+TRAIN_R = {"image": "123.dkr.ecr.cn-north-1.amazonaws.com.cn/xgboost:1.7",
+           "imageDigest": f"sha256:{H}", "inputDigests": {"train": f"sha256:{H}"},
+           "channels": ["train", "validation"], "modelArtefact": "s3://b/model.tar.gz",
+           "resolvedHyperparameters": {"eta": 0.1}, "billableSeconds": 134}
+COMMON = {"budget": "20 jobs", "selectOn": "validation",
+          "channels": ["train", "validation"],
+          "winnerFixedBeforeTestAccess": True, "winner": {"eta": 0.1}}
+FIXED = {**COMMON, "method": "fixed-candidates", "methodChosenBy": "user",
+         "candidates": [{"eta": 0.1}, {"eta": 0.3}], "candidatesRun": 2}
+AMT = {**COMMON, "method": "amt-search", "methodChosenBy": "user",
+       "searchSpace": {"eta": [0.01, 0.3]}, "maxJobs": 20, "candidatesRun": 20}
+
+
+def tuning(doc, tag):
+    b = D / f"tb-{tag}.json"; b.write_text(json.dumps(BASE_R), encoding="utf-8")
+    t = D / f"tt-{tag}.json"; t.write_text(json.dumps(TRAIN_R), encoding="utf-8")
+    u = D / f"tu-{tag}.json"; u.write_text(json.dumps(doc), encoding="utf-8")
+    return run(ROOT / "skills/train-and-tune/scripts/training-check.py", b, t, u)
+
+
+rc, out = tuning(FIXED, "fixed")
+case("fixed-candidates chosen by the user passes", rc == 0, out)
+rc, out = tuning(AMT, "amt")
+case("amt-search chosen by the user passes too", rc == 0, out)
+
+# The shape a real run produced: a fixed candidate list and no record of anyone choosing it.
+# The checker used to accept this AND to require `candidates`, so it was steering the answer.
+silent = {k: v for k, v in FIXED.items() if k not in ("method", "methodChosenBy")}
+rc, out = tuning(silent, "silent")
+case("a method nobody chose is refused", rc != 0 and "methodChosenBy" in out, out)
+rc, out = tuning({**AMT, "candidatesRun": 45}, "over")
+case("an amt search past its maxJobs is refused",
+     rc != 0 and "maxJobs" in out, out)
+rc, out = tuning({k: v for k, v in AMT.items() if k != "searchSpace"}, "nospace")
+case("amt-search with no declared searchSpace is refused",
+     rc != 0 and "searchSpace" in out, out)
+
 print(f"\n{'all passed' if not fails else f'{fails} failed'}")
 sys.exit(1 if fails else 0)

@@ -112,6 +112,23 @@ consumes it, one experiment at a time, and every individual run still looks hone
 Validation is what tuning may read. Test is read once, by `evaluate-and-gate`, after the
 winner is fixed.
 
+### The method is the user's choice, and it is a spending decision
+
+Tuning has two shapes and they differ by orders of magnitude in cost:
+
+| `method` | What it declares | What it costs |
+|---|---|---|
+| `fixed-candidates` | an explicit candidate list | exactly as many training jobs as the list names |
+| `amt-search` | a `searchSpace` of ranges plus `maxJobs` | whatever the budget allows, chosen by the service |
+
+**Put both to the user with the cost of each named, and record their answer as
+`methodChosenBy: user`.** A run picked fixed parallel candidates without asking and nothing
+objected — and worse, the checker demanded a `candidates` list, so the tool itself pushed
+toward one of the two answers. Both failures are now refusals: an undeclared `method`, and a
+`method` the user did not choose.
+
+Do not infer the choice from the request. "Tune it" names the stage, not the method.
+
 ### Declare the candidates before running them
 
 Write the search space — or the explicit candidate list — into the contract first. Two
@@ -151,7 +168,11 @@ spec:
     imageDigest: <sha256:...>
     resolvedHyperparameters: {<as sent, not as intended>}
   tuning:
-    candidates: [<declared before running>]
+    method: fixed-candidates | amt-search   # the user's choice, not an inference
+    methodChosenBy: user
+    candidates: [<declared before running>]     # fixed-candidates
+    searchSpace: {<ranges>}                     # amt-search
+    maxJobs: <int>                              # amt-search
     budget: <count | wallClock | cost>
     selectOn: validation
     winnerFixedBeforeTestAccess: true

@@ -232,8 +232,59 @@ def check_training(t: dict, r: Report) -> None:
 
 def check_tuning(t: dict, r: Report) -> None:
     """Stage 8: validation only, candidates declared, winner fixed before test."""
-    declared = t.get("candidates")
-    if not declared:
+    method = t.get("method")
+    METHODS = {"fixed-candidates", "amt-search"}
+    if method not in METHODS:
+        r.fail(
+            "tuning",
+            f"method is {method!r}; declare one of {sorted(METHODS)}. Tuning has two shapes "
+            "and they differ by orders of magnitude in cost: a fixed candidate list launches "
+            "exactly as many jobs as it names, while an AMT search explores ranges until its "
+            "budget is spent. Which one runs is a spending decision, so it has to be on the "
+            "record as a decision rather than inferable from the shape of the report.",
+        )
+    if t.get("methodChosenBy") != "user":
+        r.fail(
+            "tuning",
+            "methodChosenBy is not 'user'. Put both options to them with the cost of each "
+            "named -- how many jobs a fixed list launches, and what budget bounds an AMT "
+            "search -- and record their answer. A run picked fixed parallel candidates "
+            "without asking, and nothing objected because this check did not exist; worse, "
+            "the check that did exist demanded a `candidates` list, so the tool itself was "
+            "pushing toward one of the two answers.",
+        )
+
+    if method == "amt-search":
+        # An AMT search declares ranges, not a list. Requiring `candidates` of it -- which
+        # this checker did -- made the search method fail structurally, which is how a checker
+        # ends up choosing a method on the user's behalf.
+        space = t.get("searchSpace")
+        if not isinstance(space, dict) or not space:
+            r.fail(
+                "tuning",
+                "method is amt-search and no searchSpace is declared. The ranges are what "
+                "stands in for a candidate list: declared before running, so the space "
+                "cannot grow once a favourite appears.",
+            )
+        if t.get("maxJobs") in NULLISH:
+            r.fail(
+                "tuning",
+                "method is amt-search and no maxJobs is recorded. An unbounded search has "
+                "no declared stopping point, and cost is the reason the user was asked.",
+            )
+        ran = t.get("candidatesRun")
+        mx = t.get("maxJobs")
+        if isinstance(ran, int) and isinstance(mx, int) and ran > mx:
+            r.fail(
+                "tuning",
+                f"{ran} jobs ran against a declared maxJobs of {mx}. The budget was exceeded "
+                "or it was raised after the search began.",
+            )
+        declared = None
+    else:
+        declared = t.get("candidates")
+
+    if method == "fixed-candidates" and not declared:
         r.fail(
             "tuning",
             "no declared candidate list. Picking the best of six on validation earns a "
