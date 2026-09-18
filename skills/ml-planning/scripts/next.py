@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -68,9 +69,17 @@ def semantic_digest(preset: str | None, tasks) -> str:
     Deliberately excludes the wording of a reason, a question or a substitution: those
     belong to whoever wrote them and improving them must not raise an alarm. What it does
     cover is every structural fact -- the marker, the stage, and the numbers a rule reads.
+
+    THE EXCLUSION WAS TOO WIDE, and a run showed why. It changed the S3 prefix its approved plan
+    named and nothing objected: the markers were untouched, so the digest matched, so the approval
+    that covered the old prefix went on covering the new one. The task TEXT is now in the digest,
+    with the marker normalised out of it, so a substantive edit -- a bucket, a prefix, a target, a
+    scope -- trips the same refusal a hand-edited marker does. `report.py` recomputes after its
+    own writes, so ordinary progress still passes.
     """
     parts = [f"preset={preset or ''}"]
     for t in sorted(tasks, key=lambda t: t.num):
+        substance = re.sub(r"\[(?: |-|\?|R|x|S|!|~|>)\]", "[]", t.text)
         parts.append(
             "|".join(
                 [
@@ -81,6 +90,7 @@ def semantic_digest(preset: str | None, tasks) -> str:
                     ",".join(str(n) for n in sorted(t.blocked_by)),
                     "asked" if t.asked else "",
                     "instead" if t.instead_of else "",
+                    hashlib.sha256(substance.encode("utf-8")).hexdigest()[:16],
                 ]
             )
         )

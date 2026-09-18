@@ -106,7 +106,7 @@ print("\n=== record, then advance ===")
 art = D / "artifacts"; art.mkdir(exist_ok=True)
 (art / "dataset-manifest.json").write_text(MANIFEST, encoding="utf-8")
 rc, out = run("report.py", "--plan", plan, "--task", "3", "--state", "x",
-              "--artifact", art / "dataset-manifest.json")
+              "--supplied", "bucket=b, role=r, prefix=p/", "--artifact", art / "dataset-manifest.json")
 fails += not case("[x] with its artefact is recorded", "OK", rc, out, "RECORDED")
 rc, out = run("next.py", plan)
 fails += not case("the next directive names task 4", "OK", rc, out, "task")
@@ -147,12 +147,12 @@ rc, out = run("report.py", "--plan", ph, "--task", "4", "--state", "x", "--artif
 fails += not case("stage 3 holds hard: a downstream [x] is refused", "REFUSED", rc, out, 'holds = "hard"')
 rc, out = run("report.py", "--plan", ph, "--task", "5", "--state", "S", "--reason", "not this time")
 fails += not case("[S] is refused too, which plan-lint alone does not catch", "REFUSED", rc, out, 'holds = "hard"')
-rc, out = run("report.py", "--plan", ph, "--task", "3", "--state", "x", "--artifact", ev)
+rc, out = run("report.py", "--plan", ph, "--task", "3", "--state", "x", "--supplied", "bucket=b, role=r, prefix=p/", "--artifact", ev)
 fails += not case("the held task itself stays reportable: that is how the hold clears", "OK", rc, out)
 
 print("\n=== an unapproved plan cannot record execution stages ===")
 pu2 = D / "unappr2.md"; pu2.write_text(UNAPPROVED, encoding="utf-8")
-rc, out = run("report.py", "--plan", pu2, "--task", "3", "--state", "x", "--artifact", ev)
+rc, out = run("report.py", "--plan", pu2, "--task", "3", "--state", "x", "--supplied", "bucket=b, role=r, prefix=p/", "--artifact", ev)
 fails += not case("calling report.py directly does not bypass the approval gate", "REFUSED", rc, out, "APPROVED")
 rc, out = run("report.py", "--plan", pu2, "--task", "1", "--state", "x")
 fails += not case("planning stages are exempt: they produce the plan to be approved", "OK", rc, out)
@@ -232,6 +232,32 @@ rc, out = run("report.py", "--plan", pg, "--task", "7", "--state", "x", "--artif
 fails += not case("a gate that cannot run has not passed", "REFUSED", rc, out,
                   "cannot run has not passed")
 train.unlink(missing_ok=True)
+
+print("\n=== a hard hold completed must record what the user supplied ===")
+HELD_OK = GOOD.replace("PRESET: data-prep-only", "PRESET: data-prep-only")
+ph2 = D / "supplied.md"
+mf = art / "dataset-manifest.json"
+mf.write_text(MANIFEST, encoding="utf-8")
+ph2.write_text(GOOD, encoding="utf-8")
+rc, out = run("report.py", "--plan", ph2, "--task", "3", "--state", "x", "--artifact", mf)
+fails += not case("[x] on a hard-hold stage without --supplied is refused",
+                  "REFUSED", rc, out, "came from the user")
+ph2.write_text(GOOD, encoding="utf-8")
+rc, out = run("report.py", "--plan", ph2, "--task", "3", "--state", "x", "--artifact", mf,
+              "--supplied", "bucket=b, role=r, prefix=p/")
+fails += not case("naming the supplied values records them in the plan", "OK", rc, out,
+                  "supplied:")
+
+print("\n=== a substantive edit trips the digest, not only a marker edit ===")
+ph3 = D / "substance.md"
+ph3.write_text(GOOD.replace("**Register the dataset**",
+                            "**Register the dataset at s3://generic/**"), encoding="utf-8")
+run("next.py", ph3)
+before_txt = ph3.read_text(encoding="utf-8")
+ph3.write_text(before_txt.replace("s3://generic/", "s3://restricted/"), encoding="utf-8")
+rc, out = run("next.py", ph3, "--no-record")
+fails += not case("changing a prefix in the plan text is caught", "REFUSED", rc, out,
+                  "some route other than report.py")
 
 print(f"\n{'all passed' if not fails else str(fails) + ' failed'}")
 sys.exit(1 if fails else 0)

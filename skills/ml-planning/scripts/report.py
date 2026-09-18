@@ -117,6 +117,29 @@ def validate(state: str, spec: dict, a, stage: str) -> list[str]:
                 )
             check_verdict(found, spec, stage)
 
+        # Checked after the artefact, because a missing artefact is the more fundamental
+        # objection and should be the one a caller hears first.
+        #
+        # A hard-hold stage waits on something only the user can supply or authorise, so
+        # completing it means values arrived from outside. Record WHICH values. Without this a
+        # run can locate infrastructure itself, pick among what it finds, and report the stage
+        # done -- and the selection lives only in a sentence it said once. That happened: a run
+        # announced "the role only permits the sm-workflow-trial/* prefix, so I will use that
+        # rather than the plan's generic one", marked the stage [x], and moved on. Choosing the
+        # only prefix a role allows is barely a choice; announcing a departure from an approved
+        # plan and then not recording it is the part that must not be possible.
+        if spec.get("holds") == "hard" and not a.supplied:
+            raise Refusal(
+                f"stage {stage} declares holds = \"hard\", so completing it means values came "
+                "from the user. Pass --supplied naming them, exactly as they will be used -- "
+                "the bucket, the role, the prefix, the account. If any value differs from what "
+                "the plan says, that is not a detail to record afterwards: report [~] with "
+                "`instead-of:` and say so, or ask. [x] on this stage asserts the plan was "
+                "followed."
+            )
+        if a.supplied:
+            fields.append(f"supplied: {a.supplied}")
+
     elif state == ">":
         if spec.get("mode") != "pipeline":
             raise Refusal(
@@ -386,6 +409,11 @@ def main() -> int:
     ap.add_argument("--execution"), ap.add_argument("--refused")
     ap.add_argument("--blocks"), ap.add_argument("--instead-of", dest="instead_of")
     ap.add_argument("--blocked-by", dest="blocked_by"), ap.add_argument("--asked")
+    ap.add_argument(
+        "--supplied",
+        help="for a hard-hold stage reported [x]: the values that came from the user, written "
+             "as they will actually be used (bucket, role, prefix, account)",
+    )
     a = ap.parse_args()
 
     try:
