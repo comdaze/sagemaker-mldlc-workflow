@@ -32,10 +32,9 @@ If you read nothing else in this file, do these four. Each is expanded below.
 3. **Pick a scope preset and write it as `PRESET:`**, so the size of the run is a decision
    rather than an accident. It is not optional bookkeeping: three checks read it, and
    without it none of them can fire.
-4. **Write `PLAN.md`, then let `next.py` drive it.** It issues one directive at a time and
-   `report.py` writes the state back. A run compiled a real Pipeline and 48 artefacts while
-   its plan quietly lost three stages, because deciding whether work remained was its own
-   call. Do not make that call yourself.
+4. **Write `PLAN.md`, present it for approval, then let `next.py` drive it.** Record what
+   the user said as `APPROVED: "<their words>" @ <ISO 8601>` — **never on your own
+   authority**. Until that line exists `next.py` dispatches nothing but `present-plan`.
 
 ```bash
 S=$(dirname "$(ls ~/.kiro/powers/installed/*/skills/ml-planning/scripts/next.py \
@@ -44,8 +43,15 @@ python3 "$S/next.py" PLAN.md --artifacts artifacts/    # what now?
 python3 "$S/report.py" --task N --state x --artifact PATH   # what happened
 ```
 
-Skipping 1 or 4 is what this list prevents: a plan that never recorded its partition, or
-a run that decided for itself that it had finished.
+The approval line exists because a run wrote its plan and, in the same turn, delivered
+contracts, feature code, a trained model, an evaluation, a gate decision and a compiled
+Pipeline. The rule "present the plan for approval" had been in this file all along, as prose,
+and so held exactly as well as prose does. **A stage whose `stages.toml` entry says
+`holds = "hard"` cannot be worked around at all** — not even by `[~]`, which passes every
+other blocker — because what it waits on is something only the user can supply or authorise.
+
+Skipping 1 or 4 is what this list prevents: a plan that never recorded its partition, or a
+run that decided for itself that it had permission.
 
 ## If you were asked to demonstrate this power rather than to build something
 
@@ -187,6 +193,7 @@ reading the conversation, and nothing else may be the authority on what has been
 PARTITION: aws-cn
 SDK: 3.22.0
 PRESET: full-lifecycle
+APPROVED: "确认，按这个计划做" @ 2026-09-16T17:35:00+08:00
 LAST_DONE: 2 @ 2026-09-16T17:40:00+08:00
 
 1. [x] **[Task]** — [what happened]. _(Stage: 1 | Skill: ml-planning)_

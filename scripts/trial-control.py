@@ -17,6 +17,7 @@ GOOD = """# Plan
 PARTITION: aws-cn
 SDK: 3.22.0
 PRESET: data-prep-only
+APPROVED: "可以，按 data-prep-only 做" @ 2026-09-18T13:05:00+08:00
 LAST_DONE: 2 @ 2026-09-18T10:00:00+08:00
 
 1. [x] **Frame the problem** _(Stage: 1 | Skill: ml-planning)_
@@ -25,6 +26,9 @@ LAST_DONE: 2 @ 2026-09-18T10:00:00+08:00
 4. [ ] **Leakage guard** _(Stage: 4 | Skill: leakage-guard)_
 5. [ ] **Data processing** _(Stage: 5 | Skill: data-pipeline)_
 """
+
+UNAPPROVED = GOOD.replace(
+    'APPROVED: "可以，按 data-prep-only 做" @ 2026-09-18T13:05:00+08:00\n', "")
 
 TRUNC = GOOD.replace("PRESET: data-prep-only", "PRESET: full-lifecycle")
 
@@ -46,7 +50,15 @@ def case(label, want, rc, out, needle=None):
 fails = 0
 plan = D / "PLAN.md"
 
-print("=== next.py 派发 ===")
+print("=== 计划批准是执行的前置（第十一轮的病根） ===")
+pu = D / "unapproved.md"; pu.write_text(UNAPPROVED, encoding="utf-8")
+rc, out = run("next.py", pu)
+fails += not case("未批准 → 只发 present-plan", "OK", rc, out, "present-plan")
+no_exec = "execute" not in out
+print(f"  {'✔' if no_exec else '✘'} 未批准时不派发 execute")
+fails += not no_exec
+
+print("\n=== next.py 派发 ===")
 plan.write_text(GOOD, encoding="utf-8")
 rc, out = run("next.py", plan)
 fails += not case("干净计划 → 派发", "OK", rc, out, "task")

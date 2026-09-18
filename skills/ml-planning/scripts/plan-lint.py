@@ -56,6 +56,7 @@ INSTEAD_RE = re.compile(r"instead-of:\s*\S")
 BLOCKED_BY_RE = re.compile(r"blocked-by:\s*(?P<nums>\d+(?:\s*,\s*\d+)*)")
 PRESET_RE = re.compile(r"^PRESET:\s*(?P<val>.+?)\s*$")
 LAST_DONE_RE = re.compile(r"^LAST_DONE:\s*(?P<val>.+?)\s*$")
+APPROVED_RE = re.compile(r"^APPROVED:\s*(?P<val>.+?)\s*$")
 PARTITION_RE = re.compile(r"^PARTITION:\s*(?P<val>.+?)\s*$")
 LAST_DONE_VALUE_RE = re.compile(r"^(?P<num>\d+)\s*@\s*(?P<ts>\S+)$")
 
@@ -163,6 +164,10 @@ def parse(lines: list[str]) -> tuple[dict[str, tuple[int, str]], list[Task]]:
         m = PARTITION_RE.match(line)
         if m:
             header.setdefault("PARTITION", (line_no, m.group("val")))
+            continue
+        m = APPROVED_RE.match(line)
+        if m:
+            header.setdefault("APPROVED", (line_no, m.group("val")))
             continue
         m = PRESET_RE.match(line)
         if m:
@@ -388,7 +393,7 @@ def check_awaiting(tasks: list[Task], r: Report) -> None:
             )
 
 
-def check_awaiting_holds(tasks: list[Task], r: Report) -> None:
+def check_awaiting_holds(tasks: list[Task], stages: dict, r: Report) -> None:
     """A `[?]` that is still open must actually be holding the work back.
 
     The half of the rule that was missing. One run asked correctly, the user answered
@@ -402,9 +407,16 @@ def check_awaiting_holds(tasks: list[Task], r: Report) -> None:
     else happens.
 
     `[~]` downstream is the one legal form, because that is the state that declares
-    substitute work and names the blocker justifying it.
+    substitute work and names the blocker justifying it -- EXCEPT where the blocked stage
+    declares `holds = "hard"`, which is the exemption's own exemption. See below.
     """
-    PROGRESS = {"[-]", "[x]", "[!]"}
+    # `[>]` belongs in this set and was missing. The body claimed progress downstream of an
+    # open question was refused, and the set it was checked against did not include a
+    # submitted remote execution -- so a run could launch a cloud Pipeline while its plan
+    # said it was waiting for permission. Documented and not implemented is the worst of the
+    # three states a rule can be in, because a reader cannot tell it from implemented.
+    PROGRESS = {"[-]", "[x]", "[!]", "[>]"}
+    spec = stages.get("stages") or {}
     for t in tasks:
         if t.marker != "[?]":
             continue
@@ -421,6 +433,19 @@ def check_awaiting_holds(tasks: list[Task], r: Report) -> None:
                     "says it is waiting for an answer it already has is stale about the "
                     "one thing it exists to track. If it was not answered, this task "
                     f"needs [~] with 'blocked-by: {t.num}'.",
+                )
+            elif (later.marker == "[~]"
+                  and spec.get(t.stage or "", {}).get("holds") == "hard"):
+                r.fail(
+                    "awaiting",
+                    later.line_no,
+                    f"task {later.num} is [~] while task {t.num} (stage {t.stage}) is [?], "
+                    'and that stage declares holds = "hard". Substitute work cannot pass '
+                    "this one. What it waits on is something only the user can supply or "
+                    "authorise, so building the substitute IS doing the work they have not "
+                    "agreed to. A run did this eight times off a single unanswered question "
+                    "and delivered a whole implementation -- training, evaluation, the gate, "
+                    "a compiled Pipeline -- with every [~] correctly naming the blocker.",
                 )
             elif later.marker == "[~]" and t.num not in later.blocked_by:
                 r.fail(
@@ -957,7 +982,7 @@ def main() -> int:
     check_skips(tasks, r)
     check_refusals(tasks, r)
     check_awaiting(tasks, r)
-    check_awaiting_holds(tasks, r)
+    check_awaiting_holds(tasks, stages, r)
     check_substitutes(tasks, r)
     check_skill_names(tasks, skills, catalogue, r)
     check_skippability(tasks, stages, r)

@@ -70,6 +70,17 @@ mode = "inline"
 
 # ---------------------------------------------------------------- phase 2: data
 
+# holds = "hard" means: while a task for this stage sits at [?], NOTHING downstream may
+# progress -- and unlike every other block, [~] substitute work cannot pass it either. That
+# exemption is the reason this field exists. A run put ONE task at [?] asking for a bucket and
+# an execution role, then marked eight downstream tasks [~] and delivered a complete local
+# implementation: training, evaluation, the gate, a compiled Pipeline. Every [~] named the
+# blocker, so the linter passed it. Eight substitutions against one open question is not
+# substitute work; it is the whole run proceeding while the plan says it is waiting, and the
+# user had not agreed to any of it being built.
+#
+# Set it where the input is something only the user can supply or authorise: stage 3 needs
+# infrastructure they own, stage 12 IS the release decision.
 [stages.3]
 name = "Register the dataset"
 owner = "data-pipeline"
@@ -77,6 +88,7 @@ execution = "ALWAYS"
 requires = [1]
 mode = "inline"
 produces = "dataset-manifest.json"
+holds = "hard"
 
 [stages.4]
 name = "Leakage guard"
@@ -154,6 +166,7 @@ owner = "release-and-serve"
 execution = "CONDITIONAL"
 requires = [11]
 mode = "inline"
+holds = "hard"
 
 [stages.13]
 name = "Batch inference"

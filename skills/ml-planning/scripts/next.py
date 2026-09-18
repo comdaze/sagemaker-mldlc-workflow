@@ -140,6 +140,51 @@ def absent_stages(tasks, wanted: set[str], external: set[str]) -> list[str]:
                   key=lambda s: int(s) if s.isdigit() else 0)
 
 
+def approval_gate(header: dict, tasks, stages_doc: dict) -> dict | None:
+    """No execution work is dispatched until the plan has been approved once.
+
+    `SKILL.md` has said "present the numbered plan for approval, then write it to PLAN.md"
+    for as long as this skill has existed, and nothing ever checked it. So it held exactly
+    as well as every other rule left in prose: a run wrote its plan and, in the same turn,
+    delivered contracts, feature code, a trained model, an evaluation, a gate decision and a
+    compiled Pipeline. The user's own account of it was "I hadn't told it to write code and
+    it wrote all the code."
+
+    Planning stages are exempt, because framing the problem and reading the environment are
+    what produce the plan there is to approve. Everything else waits.
+
+    The honest limit: an agent can write `APPROVED:` itself, so this is not proof of consent
+    and is not presented as any. What it is: the claim becomes a quoted sentence attributed
+    to the user, sitting in the file they are reading, which makes inventing one a visible
+    lie rather than an omission nobody can see. Inside the loop it is a refusal, because
+    nothing is dispatched without it.
+    """
+    val = (header.get("APPROVED") or (0, "none"))[1].strip().lower()
+    if val not in ("", "none", "no", "pending"):
+        return None
+
+    stages = stages_doc.get("stages") or {}
+    planning = {sid for sid, s in stages.items() if s.get("owner") == "ml-planning"}
+    beyond = [
+        t for t in sorted(tasks, key=lambda t: t.num)
+        if t.stage and t.stage not in planning and t.marker != "[ ]"
+    ]
+    return {
+        "action": "present-plan",
+        "why": (
+            "APPROVED is not set, so no execution work may be dispatched. "
+            + (f"Tasks {', '.join(str(t.num) for t in beyond)} have already moved past "
+               "[ ] without it." if beyond else
+               "Nothing has started yet, which is the right moment for this.")
+        ),
+        "do": (
+            "show the user the numbered plan and the scope preset, ask them to approve it, "
+            "then record what they said: APPROVED: \"<their words>\" @ <ISO 8601>. "
+            "Do not write that line on your own authority."
+        ),
+    }
+
+
 def choose(tasks, stages_doc, wanted: set[str], external: set[str], led: dict) -> dict:
     """Pick the one thing to do next, or refuse and say what is in the way."""
     lint_mod = _load_sibling("plan-lint.py")
@@ -249,8 +294,9 @@ def choose(tasks, stages_doc, wanted: set[str], external: set[str], led: dict) -
 
 
 def render(d: dict, n: int) -> str:
-    if d["action"] == "complete":
-        return f"COMPLETE\n  {d['why']}."
+    if d["action"] in ("complete", "present-plan"):
+        head = "COMPLETE" if d["action"] == "complete" else f"DIRECTIVE {n}  present-plan"
+        return f"{head}\n  why: {d['why']}\n" + (f"  do:  {d['do']}" if d.get("do") else "")
     if d["action"] == "repair-plan":
         return (f"DIRECTIVE {n}  repair-plan\n  stages missing: {', '.join(d['stages'])}\n"
                 f"  why: {d['why']}\n  do:  {d['do']}")
@@ -332,6 +378,21 @@ def main() -> int:
             raise Refusal("plan-lint.py refuses this plan, so no directive is issued -- "
                           "advancing a plan that fails its own checks buries the fault "
                           "under later work.\n" + out)
+
+        # After lint, before dispatch: an unapproved plan gets no execution directive.
+        gate = approval_gate(header, tasks, stages_doc)
+        if gate is not None:
+            ledger = plan.with_name(LEDGER_NAME)
+            led = load_ledger(ledger)
+            if not args.no_record:
+                led["directives"] += 1
+                led["dispatched"] = {"n": led["directives"], "action": "present-plan",
+                                     "task": None}
+                led.setdefault("history", []).append(led["dispatched"])
+                save_ledger(ledger, led)
+            print(json.dumps(gate, indent=2, ensure_ascii=False) if args.json
+                  else render(gate, led["directives"]))
+            return 0
 
         ledger = plan.with_name(LEDGER_NAME)
         led = load_ledger(ledger)
