@@ -583,9 +583,12 @@ def check_docs_track_code() -> None:
             warn(f"preset {name!r} is not named in README.md")
 
     # A field that carries the user's signature is the whole point of the rule requiring it, so
-    # it has to be findable outside the source.
-    for field in ("methodChosenBy", "strategyChosenBy", "computeChosenBy", "waived-by",
-                  "APPROVED", "useSpot"):
+    # it has to be findable outside the source. The list grew as the audit did -- eight decisions
+    # now -- and adding a signature field without naming it anywhere a reader looks would put it
+    # straight back in the state this check exists to catch.
+    for field in ("methodChosenBy", "strategyChosenBy", "computeChosenBy", "algorithmChosenBy",
+                  "marginChosenBy", "metricChosenBy", "scopeChosenBy", "splitChosenBy",
+                  "algorithmAlternatives", "waived-by", "APPROVED", "COMPUTE", "useSpot"):
         where = [n for n, t in (("README.md", readme_text),
                                 ("skills/*/SKILL.md", "".join(
                                     p.read_text(encoding="utf-8")

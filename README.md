@@ -152,14 +152,40 @@ own constraints rather than presenting them as equally binding:
 | **Advice** | nothing checks it; it holds while someone remembers | "prefer the least runtime mode you can get away with" · the five questions in `monitor-and-retrain` · this README staying in step with the skills |
 
 **Three cost decisions are refusals rather than advice, and that is deliberate.** The tuning
-`method`, the AMT `strategy`, and the compute behind a search all have to carry the user's name:
-`methodChosenBy: user`, `strategyChosenBy: user`, `computeChosenBy: user`. Each was found by
-auditing for one defect — *a rule whose required fields admit only one of several legitimate
-options*, so the tool decides while looking like it enforces. `training-check.py` had demanded a
-`candidates` list, which an AMT search cannot supply, so the only shape that could pass was the
-one a validation run picked without asking. Recording an instance type is required everywhere;
-the signature is required only where the choice multiplies, because demanding one per job is the
-blunt instrument that gets worked around.
+**Eight decisions are the user's, and the tooling refuses to make any of them.** Each was found by
+the same audit question — *does a required field admit only one of several legitimate options?* —
+because a rule shaped that way decides while looking like it enforces.
+
+| The decision | Recorded as | Why it cannot be the tool's |
+|---|---|---|
+| The **margin** over the strongest baseline | `marginChosenBy: user` | It *is* the ship / do-not-ship line. 1%, 5% and 20% are all defensible and they are different businesses |
+| The **primary metric** | `metricChosenBy: user` | MAE, RMSE and a daily P95 do not rank the same candidates the same way, so choosing it chooses the model |
+| The **algorithm** | `algorithmChosenBy: user` + `algorithmAlternatives` | It settles what the model can express, what the serving stack is, and who maintains it |
+| The **data scope** | `scopeChosenBy: user`, with a reason per exclusion | Leaving data out changes what the evaluation is evidence *about* |
+| Where the **split** falls | `splitChosenBy: user` | A test window too short yields a number the gate then treats as authoritative |
+| The tuning **method** | `methodChosenBy: user` | A fixed list and an AMT search differ by orders of magnitude in cost |
+| The AMT **strategy** | `strategyChosenBy: user` | Bayesian cannot scale parallelism, Grid is categorical-only, Hyperband needs an iterative algorithm |
+| The **compute** behind a search | `computeChosenBy: user` | It runs `maxJobs` times over, which is a budget rather than a setting |
+
+Two of them arrived by finding the defect in this power's own code. `training-check.py` demanded a
+`candidates` list, which an AMT search cannot supply — so the only shape that could pass was the one
+a validation run picked without asking, and the tool was steering rather than merely silent. That is
+also why `algorithmAlternatives` must name something *other* than the choice: a menu with one item
+makes "the user agreed" true and hollow.
+
+**The asymmetry is deliberate.** Recording an instance type is required everywhere; the *signature*
+is required only where the choice multiplies or sets a threshold. Demanding one per job is the blunt
+instrument that gets worked around, and a user cannot usefully reason about the fortieth instance
+decision in a row. Two more from the audit stayed accounting rather than refusals — fixed
+hyperparameters, and which baselines to compute — because defaults are defensible there and tuning
+and the consistency check are the respective remedies.
+
+**Spending money is a second authorisation, separate from approving the plan.** Stages 5–10, 13 and
+14 are declared `billable`: until the plan carries `COMPUTE: <type> x<count>, spot=<bool>,
+maxRuntimeMin=<int>, authorisedBy=user @ <ISO>`, `next.py` dispatches `authorise-compute` instead of
+the work and `report.py` refuses the state change. One line covers the run. A run reached stage 5,
+created a real Pipeline and started an `ml.m5.large` job with a 60-minute ceiling — approving a plan
+that says "processing runs as a ProcessingStep" is not approving that.
 
 **Between refusal and accounting sits `APPROVED:`.** No execution work is dispatched until the
 plan carries `APPROVED: "<the user's words>" @ <ISO>`, and an agent can write that line itself —
