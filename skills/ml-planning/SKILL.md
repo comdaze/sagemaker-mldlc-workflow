@@ -494,16 +494,9 @@ under the release.*
 
 ## Constraints to surface early
 
-- **China partition** → no HyperPod, Bedrock, managed MLflow, Inference Recommender,
-  Serverless Inference, shadow tests, or Studio pages for Experiments / Model Registry /
-  AutoML. No plan step may depend on any of them, and the absent console makes the workflow
-  API-first by necessity. Full matrix in `references/china-baseline.md`.
-- **SDK v3 is itself in motion** → pin a version range in the contract and use canonical
-  import paths, not deprecation shims.
-- **Probabilistic / quantile forecasting** → not covered; the metrics here are
-  point-forecast and classification metrics.
-- **Data generation and labelling** → out of scope, and Ground Truth is closed to new
-  customers in every partition. Do not offer either.
-- **Endpoint right-sizing** → no sizing service exists in the China partition. Instance type
-  and count are declared per environment and revised by measurement — a decision, not a task
-  some skill performs.
+Five things are out of scope or unavailable and must not appear in a plan as if they were
+options: the China partition's absent services, probabilistic forecasting, data labelling,
+endpoint right-sizing, and SDK v2 idioms under a v3 pin.
+`references/china-baseline.md` has the matrix and `references/asking-and-blocking.md` has what
+to say when one of them blocks the goal.
+
