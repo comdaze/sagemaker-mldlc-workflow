@@ -1,0 +1,232 @@
+# The stage catalogue, declarative. One table per stage; read by plan-lint.py.
+#
+# TOML because tomllib is in the Python standard library from 3.11, so this parses
+# with no dependency -- the same reason leakage-screen.py computes its statistics by
+# hand. A metadata file that needs a package installed is a metadata file that cannot
+# be read inside a processing job.
+#
+# This replaces stage-catalogue.txt (stage -> owner) and stage-artefacts.txt
+# (stage -> artefact). Two lists of the same stages drifted; one declaration cannot.
+#
+# THE FIELDS, and what each one buys that prose did not:
+#
+#   owner       which skill covers this stage. plan-lint DERIVES the expected
+#               `Skill:` from this rather than trusting what a task claims -- a run
+#               once attributed ten stages to skills that did not own them and passed.
+#
+#   execution   ALWAYS | DELIVERABLE | CONDITIONAL. The thing the old format could not
+#               express at all.
+#
+#               ALWAYS means: whenever a preset includes this stage, it cannot then be
+#               skipped -- not with a reason, not by the user. It does NOT mean every
+#               preset must include it. `data-prep-only` legitimately stops before
+#               modelling; what it may not do is include the leakage screen and then wave
+#               it away. That distinction was found by the validator: declaring 4, 6, 7,
+#               9 and 10 as ALWAYS while keeping three presets that exclude them made the
+#               presets unsatisfiable, which was a contradiction in my design rather than
+#               a false alarm.
+#
+#               DELIVERABLE means the thing the user asked for. Skippable only on the
+#               user's explicit say-so, recorded as `waived-by: user`. A run skipped batch
+#               inference -- the actual deliverable -- with a reason about the pipeline
+#               definition not containing a Batch Transform, and `[S]` allowed it, because
+#               the old rule checked that a reason EXISTED and never what it said.
+#
+#               CONDITIONAL is a scope decision: a reason is enough.
+#
+#   requires    stages that must be settled first, stated rather than inferred from
+#               numbering. Stage 13 depends on 11 and not on 12; no ordering rule based
+#               on integers can know that.
+#
+#   mode        inline | pipeline. inline is local and sequential, so the one-[-]-at-a-
+#               time rule applies. pipeline stages execute asynchronously inside a
+#               SageMaker Pipeline and legitimately run at once -- a real run had five
+#               of them in flight, had no state that meant "submitted, awaiting a remote
+#               result", and wrote `[R]` on all five because it was the closest wrong
+#               answer available.
+#
+#   produces    the artefact whose presence proves the stage ran. plan-lint --artifacts
+#               reads the workspace and refuses a task that says the work has not
+#               happened while its artefact sits on disk.
+#
+# Stages with no artefact of their own omit `produces`. That means "unverifiable from
+# disk", never "does not need doing".
+
+# ---------------------------------------------------------------- phase 1: framing
+
+[stages.1]
+name = "Frame the problem"
+owner = "ml-planning"
+execution = "ALWAYS"
+requires = []
+mode = "inline"
+
+[stages.2]
+name = "Environment readiness"
+owner = "ml-planning"
+execution = "ALWAYS"
+requires = [1]
+mode = "inline"
+
+# ---------------------------------------------------------------- phase 2: data
+
+[stages.3]
+name = "Register the dataset"
+owner = "data-pipeline"
+execution = "ALWAYS"
+requires = [1]
+mode = "inline"
+produces = "dataset-manifest.json"
+
+[stages.4]
+name = "Leakage guard"
+owner = "leakage-guard"
+execution = "ALWAYS"
+requires = [3]
+mode = "inline"
+produces = "leakage-audit.json"
+
+[stages.5]
+name = "Data processing"
+owner = "data-pipeline"
+execution = "ALWAYS"
+requires = [4]
+mode = "pipeline"
+produces = "processing-report.json"
+
+# ---------------------------------------------------------------- phase 3: modelling
+
+[stages.6]
+name = "Baseline first"
+owner = "train-and-tune"
+execution = "ALWAYS"
+requires = [5]
+mode = "pipeline"
+produces = "baseline-report.json"
+
+[stages.7]
+name = "Training"
+owner = "train-and-tune"
+execution = "ALWAYS"
+requires = [6]
+mode = "pipeline"
+produces = "training-report.json"
+
+[stages.8]
+name = "Tuning"
+owner = "train-and-tune"
+execution = "CONDITIONAL"
+requires = [7]
+mode = "pipeline"
+produces = "tuning-report.json"
+
+# ---------------------------------------------------------------- phase 4: quality
+
+[stages.9]
+name = "Evaluation"
+owner = "evaluate-and-gate"
+execution = "ALWAYS"
+requires = [7]
+mode = "pipeline"
+produces = "evaluation-report.json"
+
+[stages.10]
+name = "Quality gate"
+owner = "evaluate-and-gate"
+execution = "ALWAYS"
+requires = [9]
+mode = "pipeline"
+produces = "quality-gate-report.json"
+
+# ---------------------------------------------------------------- phase 5: release
+
+[stages.11]
+name = "Model registration"
+owner = "release-and-serve"
+execution = "CONDITIONAL"
+requires = [10]
+mode = "inline"
+produces = "release-candidate.json"
+
+[stages.12]
+name = "Governed release"
+owner = "release-and-serve"
+execution = "CONDITIONAL"
+requires = [11]
+mode = "inline"
+
+[stages.13]
+name = "Batch inference"
+owner = "release-and-serve"
+execution = "DELIVERABLE"
+requires = [10]
+mode = "pipeline"
+produces = "batch-predictions.csv"
+
+[stages.14]
+name = "Real-time inference"
+owner = "release-and-serve"
+execution = "DELIVERABLE"
+requires = [11]
+mode = "inline"
+
+# ---------------------------------------------------------------- phase 6: operation
+
+[stages.15]
+name = "Monitoring"
+owner = "monitor-and-retrain"
+execution = "CONDITIONAL"
+requires = [13]
+mode = "inline"
+
+[stages.16]
+name = "Retraining"
+owner = "monitor-and-retrain"
+execution = "CONDITIONAL"
+requires = [15]
+mode = "inline"
+
+# ---------------------------------------------------------------- cross-cutting
+# No stage number, because they apply at several stages rather than occupying one.
+# A task that IS this work names the key as its stage: `Stage: pipeline-composition`.
+
+[stages.pipeline-composition]
+name = "Compose the stages into a Pipeline"
+owner = "ml-planning"
+execution = "CONDITIONAL"
+requires = [5]
+mode = "inline"
+produces = "pipeline-definition.json"
+
+[stages.runtime-and-containers]
+name = "What runs the code"
+owner = "runtime-and-containers"
+execution = "CONDITIONAL"
+requires = []
+mode = "inline"
+
+# ---------------------------------------------------------------- scope presets
+# Which stages a preset executes. A preset may not drop an ALWAYS stage, and
+# plan-lint refuses a plan whose declared preset omits one.
+
+[presets]
+# A preset must be closed under `requires` -- including a stage means including what it
+# depends on, OR declaring that a previous run satisfied it. The validator warns when
+# neither holds, and it caught two on its first run.
+#
+# `retrain-existing` had omitted stage 4: new data with the old leakage policy unchecked.
+# That was a genuine gap and the screen is cheap, so 4 is now included.
+#
+# `inference-only` is the case that needed the second form. "A registered, approved model
+# needs serving" is a real scope, and its prerequisites were met -- in the run that
+# produced the model. Expanding the preset to re-run training would have destroyed the
+# scope to satisfy a graph rule; `satisfied-externally` records the truth instead. A plan
+# on this preset still has to name the approved model package it is serving.
+full-lifecycle = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+retrain-existing = [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12]
+data-prep-only = [1, 2, 3, 4, 5]
+inference-only = [1, 2, 13, 14]
+
+[presets-satisfied-externally]
+# stage = the prior artefact that must be named in the plan for the claim to stand
+inference-only = [3, 4, 5, 6, 7, 9, 10, 11]

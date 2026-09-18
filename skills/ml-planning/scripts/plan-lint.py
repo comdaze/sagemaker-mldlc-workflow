@@ -20,28 +20,29 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# The eight states. Anything else in a task's marker position is a violation
+# The nine states. Anything else in a task's marker position is a violation
 # rather than something to interpret generously.
 STATES = {
     "[ ]": "not started",
-    "[-]": "in progress",
+    "[-]": "in progress, locally -- at most one at a time",
     "[?]": "awaiting a human decision -- which must have been ASKED",
     "[R]": "revising after a failed gate or review",
     "[x]": "done",
     "[S]": "skipped -- a decision not to run it",
     "[!]": "ran, refused, and the refusal stands while work continued",
     "[~]": "done at a substitute level; the original goal is still blocked",
+    "[>]": "submitted to a remote executor, awaiting its result",
 }
 
 # A task that will never be worked on again as originally scoped. Ordering is checked
 # against these together. [~] belongs here because substitute work is real work: the
-# stages after it consumed its output.
+# stages after it consumed its output. [>] does NOT -- the result has not arrived.
 TERMINAL = {"[x]", "[S]", "[!]", "[~]"}
 
 PARTITIONS = {"aws", "aws-cn", "aws-us-gov"}
 
 TASK_RE = re.compile(r"^(?P<num>\d+)\.\s+(?P<rest>.*)$")
-MARKER_RE = re.compile(r"\[(?: |-|\?|R|x|S|!|~)\]")
+MARKER_RE = re.compile(r"\[(?: |-|\?|R|x|S|!|~|>)\]")
 SKILL_RE = re.compile(r"\bSkill:\s*(?P<name>[A-Za-z0-9._-]+)\s*\)_")
 # A stage no skill in this power owns yet. The would-be owner must be named, so
 # the gap is a field a reader can count rather than a sentence in prose.
@@ -53,6 +54,7 @@ BLOCKS_RE = re.compile(r"blocks:\s*(?P<nums>\d+(?:\s*,\s*\d+)*)")
 ASKED_RE = re.compile(r"asked:\s*\S")
 INSTEAD_RE = re.compile(r"instead-of:\s*\S")
 BLOCKED_BY_RE = re.compile(r"blocked-by:\s*(?P<nums>\d+(?:\s*,\s*\d+)*)")
+PRESET_RE = re.compile(r"^PRESET:\s*(?P<val>.+?)\s*$")
 LAST_DONE_RE = re.compile(r"^LAST_DONE:\s*(?P<val>.+?)\s*$")
 PARTITION_RE = re.compile(r"^PARTITION:\s*(?P<val>.+?)\s*$")
 LAST_DONE_VALUE_RE = re.compile(r"^(?P<num>\d+)\s*@\s*(?P<ts>\S+)$")
@@ -161,6 +163,10 @@ def parse(lines: list[str]) -> tuple[dict[str, tuple[int, str]], list[Task]]:
         m = PARTITION_RE.match(line)
         if m:
             header.setdefault("PARTITION", (line_no, m.group("val")))
+            continue
+        m = PRESET_RE.match(line)
+        if m:
+            header.setdefault("PRESET", (line_no, m.group("val")))
             continue
 
         m = TASK_RE.match(line)
@@ -519,6 +525,227 @@ def check_against_workspace(
             )
 
 
+def load_stages(explicit: Path | None) -> dict:
+    """Read the declarative stage catalogue.
+
+    tomllib is stdlib from Python 3.11, so this needs no dependency -- the same reason
+    leakage-screen.py computes its statistics by hand. Missing or unparseable is a HARD
+    failure: every attribution, skip, prerequisite and concurrency rule derives from this
+    file, and running the rest while reporting OK would misreport the plan as verified.
+    """
+    if explicit is not None:
+        path = explicit
+    else:
+        path = Path(__file__).resolve().parent.parent / "references" / "stages.toml"
+
+    if not path.is_file():
+        raise SystemExit(
+            f"plan-lint: cannot read the stage catalogue at {path}.\n"
+            "Every attribution, skip and prerequisite rule derives from it."
+        )
+    try:
+        import tomllib
+    except ImportError as e:  # pragma: no cover - 3.10 and older
+        raise SystemExit(
+            "plan-lint: tomllib is unavailable, so the stage catalogue cannot be read. "
+            "Python 3.11 or newer is required."
+        ) from e
+    try:
+        doc = tomllib.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise SystemExit(f"plan-lint: {path} is not valid TOML: {e}") from e
+
+    stages = doc.get("stages")
+    if not stages:
+        raise SystemExit(f"plan-lint: {path} declares no stages.")
+    for sid, s in stages.items():
+        for field in ("owner", "execution", "mode"):
+            if field not in s:
+                raise SystemExit(f"plan-lint: stage {sid!r} is missing {field!r}.")
+        if s["execution"] not in ("ALWAYS", "DELIVERABLE", "CONDITIONAL"):
+            raise SystemExit(
+                f"plan-lint: stage {sid!r} has execution {s['execution']!r}; expected "
+                "ALWAYS, DELIVERABLE or CONDITIONAL."
+            )
+        if s["mode"] not in ("inline", "pipeline"):
+            raise SystemExit(
+                f"plan-lint: stage {sid!r} has mode {s['mode']!r}; expected inline or pipeline."
+            )
+    return doc
+
+
+def check_skippability(tasks: list[Task], stages: dict, r: Report) -> None:
+    """ALWAYS stages cannot be skipped by anyone, and a reason does not change that.
+
+    The rule the old format could not express. `[S]` required a reason and never checked
+    what the reason said, so a run skipped batch inference -- the deliverable the user
+    asked for -- on the grounds that the pipeline definition did not contain a Batch
+    Transform. Implementation absent, therefore deliverable absent, and the plan recorded
+    it as a decision.
+
+    Three classes now. ALWAYS is refused outright. DELIVERABLE may be skipped only when
+    the user said so, recorded as `waived-by: user`, and not every deliverable at once --
+    a plan that skips all of them delivered nothing. CONDITIONAL is a scope decision and
+    keeps the old rule: a reason is enough.
+    """
+    cat = stages["stages"]
+    for t in tasks:
+        if t.marker != "[S]" or not t.stage:
+            continue
+        s = cat.get(t.stage)
+        if s is None:
+            continue
+        ex = s["execution"]
+        if ex == "ALWAYS":
+            r.fail(
+                "skippability",
+                t.line_no,
+                f"task {t.num} skips stage {t.stage} ({s['name']}), which is declared "
+                "ALWAYS. It cannot be skipped -- not with a reason, not by the user, not "
+                "to save time. A check that a good enough reason can wave away is a "
+                "suggestion with paperwork.",
+            )
+        elif ex == "DELIVERABLE" and not re.search(r"waived-by:\s*user", t.text):
+            r.fail(
+                "skippability",
+                t.line_no,
+                f"task {t.num} skips stage {t.stage} ({s['name']}), which is a "
+                "DELIVERABLE. Skipping it needs the user's explicit decision recorded as "
+                "'waived-by: user' -- an agent deciding that local verification is "
+                "sufficient is the agent deciding what was asked for.",
+            )
+
+    delivs = [k for k, s in cat.items() if s["execution"] == "DELIVERABLE"]
+    if delivs:
+        by_stage = {t.stage: t for t in tasks if t.stage}
+        present = [d for d in delivs if d in by_stage]
+        if present and all(by_stage[d].marker == "[S]" for d in present):
+            r.fail(
+                "skippability",
+                None,
+                f"every deliverable stage ({', '.join(present)}) is skipped. Whatever "
+                "else the run produced, it did not produce the thing it was for.",
+            )
+
+
+def check_prerequisites(tasks: list[Task], stages: dict, r: Report) -> None:
+    """`requires` is declared, not inferred from task numbering.
+
+    The old ordering rule compared task numbers, which encodes an assumption the stage
+    graph does not make: stage 13 requires 10 and not 12, and no rule based on integers
+    can know that.
+    """
+    cat = stages["stages"]
+    by_stage = {t.stage: t for t in tasks if t.stage}
+    SETTLED = {"[x]", "[S]", "[!]", "[~]"}
+    for t in tasks:
+        if t.marker not in {"[-]", "[x]", "[>]"} or not t.stage:
+            continue
+        s = cat.get(t.stage)
+        if s is None:
+            continue
+        for req in s.get("requires", []):
+            rt = by_stage.get(str(req))
+            if rt is None:
+                r.fail(
+                    "prerequisite",
+                    t.line_no,
+                    f"task {t.num} is stage {t.stage}, which requires stage {req}, and "
+                    "no task declares that stage. The plan is missing a prerequisite it "
+                    "cannot proceed without.",
+                )
+            elif rt.marker not in SETTLED:
+                r.fail(
+                    "prerequisite",
+                    t.line_no,
+                    f"task {t.num} (stage {t.stage}) is {t.marker} but stage {req} "
+                    f"(task {rt.num}) is {rt.marker}. Declared prerequisite, not an "
+                    "assumption about numbering.",
+                )
+
+
+def check_preset_coverage(header: dict, tasks: list[Task], stages: dict, r: Report) -> None:
+    """A declared preset must be covered -- an ALWAYS stage may not simply vanish.
+
+    A run declared `full-lifecycle` and wrote fourteen tasks. Stages 14, 15 and 16 were
+    not skipped, not deferred, not mentioned: they were gone, and nothing noticed because
+    the linter checked that numbering was contiguous rather than that the plan covered
+    what it claimed to.
+    """
+    if "PRESET" not in header:
+        return
+    _, name = header["PRESET"]
+    presets = stages.get("presets") or {}
+    if name not in presets:
+        r.fail(
+            "preset",
+            None,
+            f"PRESET {name!r} is not declared in stages.toml "
+            f"({', '.join(sorted(presets))}).",
+        )
+        return
+    declared = {str(s) for s in presets[name]}
+    external = {
+        str(s) for s in ((stages.get("presets-satisfied-externally") or {}).get(name) or [])
+    }
+    covered = {t.stage for t in tasks if t.stage} | external
+    missing = declared - covered
+    if missing:
+        cat = stages["stages"]
+        always = sorted(m for m in missing if cat.get(m, {}).get("execution") == "ALWAYS")
+        other = sorted(missing - set(always))
+        if always:
+            r.fail(
+                "preset",
+                None,
+                f"PRESET {name} includes stages {always} which are ALWAYS and which no "
+                "task covers. A stage that is mandatory and absent is worse than one "
+                "that is skipped, because nothing records the decision.",
+            )
+        if other:
+            r.fail(
+                "preset",
+                None,
+                f"PRESET {name} includes stages {other} which no task covers. Add them, "
+                "or narrow the preset -- a plan that claims a preset it does not cover "
+                "misreports its own scope.",
+            )
+
+
+def check_concurrency(tasks: list[Task], stages: dict, r: Report) -> None:
+    """One `[-]` at a time applies to inline work; `[>]` is for remote execution.
+
+    A run submitted a SageMaker Pipeline and had five stages genuinely in flight at
+    once. `[-]` allows one, so it wrote `[R]` on all five -- the closest wrong answer
+    available. The vocabulary forced a false record.
+
+    `[>]` means submitted to a remote executor and awaiting its result. It is not capped,
+    because one submission legitimately starts several stages, and it must carry
+    `execution:` naming the run -- an execution id that exists can be checked, and one
+    that does not was invented.
+    """
+    cat = stages["stages"]
+    for t in tasks:
+        if t.marker != "[>]":
+            continue
+        if not re.search(r"execution:\s*\S", t.text):
+            r.fail(
+                "concurrency",
+                t.line_no,
+                f"task {t.num} is [>] but records no 'execution: <arn or id>'. A remote "
+                "run you cannot name is a remote run nobody can check on.",
+            )
+        s = cat.get(t.stage) if t.stage else None
+        if s is not None and s["mode"] != "pipeline":
+            r.fail(
+                "concurrency",
+                t.line_no,
+                f"task {t.num} is [>] but stage {t.stage} is declared mode "
+                f"{s['mode']!r}. Only a pipeline stage runs remotely; inline work in "
+                "progress is [-].",
+            )
+
+
 def check_skill_names(
     tasks: list[Task], skills: set[str], catalogue: dict[str, str], r: Report
 ) -> None:
@@ -690,7 +917,7 @@ def main() -> int:
         "--catalogue",
         type=Path,
         default=None,
-        help="stage catalogue file (default: ../references/stage-catalogue.txt)",
+        help="stage catalogue (default: ../references/stages.toml)",
     )
     ap.add_argument(
         "--artifacts",
@@ -705,7 +932,8 @@ def main() -> int:
         raise SystemExit(f"plan-lint: no such file: {args.plan}")
 
     skills = discover_skills(args.skills_dir)
-    catalogue = load_catalogue(args.catalogue)
+    stages = load_stages(args.catalogue)
+    catalogue = {sid: s["owner"] for sid, s in stages["stages"].items()}
     lines = args.plan.read_text(encoding="utf-8").splitlines(keepends=True)
     header, tasks = parse(lines)
 
@@ -720,13 +948,17 @@ def main() -> int:
     check_awaiting_holds(tasks, r)
     check_substitutes(tasks, r)
     check_skill_names(tasks, skills, catalogue, r)
+    check_skippability(tasks, stages, r)
+    check_prerequisites(tasks, stages, r)
+    check_preset_coverage(header, tasks, stages, r)
+    check_concurrency(tasks, stages, r)
 
     if args.artifacts is not None:
-        amap = load_two_column(
-            Path(__file__).resolve().parent.parent / "references" / "stage-artefacts.txt",
-            "stage-artefact map",
-            hard=True,
-        )
+        amap = {
+            sid: s["produces"]
+            for sid, s in stages["stages"].items()
+            if "produces" in s
+        }
         check_against_workspace(tasks, args.artifacts, amap, r)
 
     if r.ok:

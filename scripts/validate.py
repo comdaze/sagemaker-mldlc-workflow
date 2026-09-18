@@ -127,43 +127,87 @@ def check_mcp_extras(path: Path) -> None:
 def check_stage_catalogue() -> None:
     """The stage catalogue, skills/ and SKILL.md's table must name the same stages.
 
-    plan-lint.py derives each task's expected owner from the catalogue, so a name
-    that drifts out of step with skills/ turns the attribution check from a
-    refusal into a wrong answer. Three copies of the same list exist for good
-    reasons -- one machine-readable, one for the reader, one on disk -- and three
-    copies drift.
+    plan-lint.py derives each task's expected owner, its skippability class, its
+    prerequisites and its execution mode from this one file, so a name that drifts out of
+    step with skills/ turns the attribution check from a refusal into a wrong answer.
+
+    It replaced two flat lists that had already drifted from each other. One declaration
+    cannot disagree with itself; three copies of the same names will.
     """
-    cat = ROOT / "skills" / "ml-planning" / "references" / "stage-catalogue.txt"
+    cat = ROOT / "skills" / "ml-planning" / "references" / "stages.toml"
     if not cat.exists():
-        fail("skills/ml-planning/references/stage-catalogue.txt is missing -- plan-lint.py needs it")
+        fail("skills/ml-planning/references/stages.toml is missing -- plan-lint.py needs it")
         return
 
-    owners: set[str] = set()
-    for line in cat.read_text(encoding="utf-8").splitlines():
-        line = line.split("#", 1)[0].strip()
-        if not line:
-            continue
-        parts = line.split()
-        if len(parts) != 2:
-            fail(f"stage-catalogue.txt: malformed line {line!r} (expected '<stage> <skill>')")
-            continue
-        owners.add(parts[1])
+    try:
+        import tomllib
+    except ImportError:
+        warn("tomllib unavailable, so the stage catalogue is unchecked (needs Python 3.11+)")
+        return
+    try:
+        doc = tomllib.loads(cat.read_text(encoding="utf-8"))
+    except Exception as e:
+        fail(f"stages.toml is not valid TOML: {e}")
+        return
 
+    stages = doc.get("stages") or {}
+    if not stages:
+        fail("stages.toml declares no stages")
+        return
+
+    owners = {s.get("owner") for s in stages.values() if isinstance(s, dict)}
     on_disk = {d.name for d in (ROOT / "skills").iterdir() if (d / "SKILL.md").is_file()}
     for name in sorted(on_disk - owners):
         fail(
-            f"skill {name!r} exists in skills/ but owns no stage in "
-            "stage-catalogue.txt -- plan-lint would reject a task attributed to it"
+            f"skill {name!r} exists in skills/ but owns no stage in stages.toml -- "
+            "plan-lint would reject a task attributed to it"
         )
+    for name in sorted(owners - on_disk):
+        if name:
+            warn(f"stages.toml names owner {name!r}, which is not a skill in skills/")
+
+    # Every stage a preset names must exist. A preset MAY exclude an ALWAYS stage --
+    # `data-prep-only` legitimately stops before modelling. ALWAYS constrains what may
+    # be skipped once a preset includes it, which is plan-lint's job, not this one.
+    for pname, ids in (doc.get("presets") or {}).items():
+        for sid in ids:
+            if str(sid) not in stages:
+                fail(f"preset {pname!r} names stage {sid}, which stages.toml does not declare")
+
+    # A prerequisite must itself be declared, and a preset that includes a stage should
+    # include what that stage requires -- otherwise the plan cannot satisfy it.
+    for sid, s in stages.items():
+        for req in s.get("requires", []) or []:
+            if str(req) not in stages:
+                fail(f"stage {sid} requires stage {req}, which stages.toml does not declare")
+    ext_all = doc.get("presets-satisfied-externally") or {}
+    for pname, ids in (doc.get("presets") or {}).items():
+        included = {str(s) for s in ids}
+        external = {str(s) for s in (ext_all.get(pname) or [])}
+        for sid in included:
+            for req in (stages.get(sid, {}).get("requires") or []):
+                if str(req) not in included and str(req) not in external:
+                    warn(
+                        f"preset {pname!r} includes stage {sid} but neither includes its "
+                        f"prerequisite {req} nor lists it under "
+                        "presets-satisfied-externally; a plan on this preset cannot "
+                        "satisfy it"
+                    )
+    for pname, ids in ext_all.items():
+        if pname not in (doc.get("presets") or {}):
+            fail(f"presets-satisfied-externally names {pname!r}, which is not a preset")
+        for sid in ids:
+            if str(sid) not in stages:
+                fail(f"presets-satisfied-externally[{pname}] names undeclared stage {sid}")
 
     skill_md = ROOT / "skills" / "ml-planning" / "SKILL.md"
     if skill_md.exists():
         body = skill_md.read_text(encoding="utf-8")
-        for name in sorted(owners):
+        for name in sorted(o for o in owners if o):
             if f"`{name}`" not in body:
                 warn(
-                    f"stage-catalogue.txt names {name!r} but ml-planning's stage table "
-                    "does not mention it; the reader and the linter disagree"
+                    f"stages.toml names {name!r} but ml-planning's stage table does not "
+                    "mention it; the reader and the linter disagree"
                 )
 
 

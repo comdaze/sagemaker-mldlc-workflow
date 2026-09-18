@@ -128,3 +128,19 @@ substituting a whole different deliverable to avoid a ten-second install.
 That is why the rule in `SKILL.md` is a three-row table rather than an instruction:
 the correct response depends on what the fix costs, and being wrong in either
 direction has a real price.
+
+## Making the skill load unconditionally
+
+`SKILL.md` step 1 offers this and lets the user decide. It writes one file into their
+project and is not a prerequisite for any work:
+
+```bash
+mkdir -p .kiro/steering
+cp ~/.kiro/powers/installed/sagemaker-mldlc-workflow/steering/getting-started.md \
+   .kiro/steering/ml-workflow.md
+```
+
+Measured on one machine with one model and an identical prompt: two activations in four
+attempts without that file, three in three with it. Steering is loaded unconditionally
+rather than matched, which is the whole difference. Typing `/ml-planning` calls the skill by
+name and needs no file at all.
