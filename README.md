@@ -27,7 +27,7 @@ flowchart TB
         S1["1 Frame the problem<br/>target, granularity, and the prediction time"]
         S2["2 Environment readiness<br/>caller ARN decides the partition<br/>installed SDK version is a gate, not a note"]
         PRESET{"Scope preset<br/>full-lifecycle · retrain-existing<br/>inference-only · data-prep-only"}
-        PMD[("PLAN.md<br/>PARTITION + SDK + LAST_DONE<br/>six per-task states, checked by plan-lint.py<br/>plus the constraints traded away")]
+        PMD[("PLAN.md<br/>PARTITION + SDK + PRESET + LAST_DONE<br/>nine per-task states, checked by plan-lint.py<br/>next.py dispatches · report.py is the only writer")]
         S1 --> S2 --> PRESET --> PMD
     end
 
@@ -147,9 +147,16 @@ own constraints rather than presenting them as equally binding:
 
 | Class | What it means | Examples |
 |---|---|---|
-| **Refusal** | honouring it produces code that declines to proceed, and a test can prove the refusal fires | the quality gate does not register a failing model · the leakage screen refuses a correlation above its declared bound · the SDK version gate stops on a mismatch · publish rejects an empty or `"null"` version id · the field-name denylist runs before schema validation · `plan-lint.py` on `PLAN.md` |
-| **Accounting** | it cannot refuse, but a missing decision becomes visible | `PARTITION` / `SDK` / `LAST_DONE` in the plan · `features.assumed[].reason` · `[S]` tasks carrying `skipped: <why>` · a declared serving mode · a gate's refusal carrying the command that fixes it · a substitution recorded under "Constraints traded away" |
+| **Refusal** | honouring it produces code that declines to proceed, and a test can prove the refusal fires | the quality gate does not register a failing model · a bound that does not follow from its own `derivedFrom` · the leakage screen refuses a correlation above its declared bound · `report.py` refuses `[S]` on an `ALWAYS` stage and `[x]` with no artefact on disk · the SDK version gate stops on a mismatch · publish rejects an empty or `"null"` version id · `plan-lint.py` on `PLAN.md` |
+| **Accounting** | it cannot refuse, but a missing decision becomes visible | `PARTITION` / `SDK` / `PRESET` / `LAST_DONE` in the plan · `features.assumed[].reason` and the measurement beside it · `[S]` tasks carrying `skipped: <why>` · `failOnRefusalSuppressed` in the gate report · off-dispatch reports counted in the ledger · a substitution recorded under "Constraints traded away" |
 | **Advice** | nothing checks it; it holds while someone remembers | "prefer the least runtime mode you can get away with" · the five questions in `monitor-and-retrain` · this README staying in step with the skills |
+
+**Between refusal and accounting sits one mechanism that is neither.** `next.py` cannot stop
+an agent editing `PLAN.md` by hand — no script can — so instead it makes the edit **not
+count**: the ledger digests the plan's state, and a plan changed by any other route stops
+earning directives until it is reconciled. Tampering is not blocked; it costs the agent its
+own next instruction. That only works on a run that uses the loop at all, which is why the
+row below still governs everything.
 
 **And one class below all three: whether a skill loads at all.** Measured at roughly
 one plain request in two, with the same model and description (see
@@ -165,6 +172,49 @@ into the artefacts; constraints that stayed prose either held by luck or went
 missing without a trace.** In that run a metric from the default list went
 unimplemented and nothing caught it — which is why omissions must now be declared
 rather than merely avoided.
+
+## The agent does not decide when it is finished
+
+A validation run compiled a real SageMaker Pipeline, wrote 48 artefacts and 8 code files,
+and read the shipped scripts unprompted. Its plan then stopped at task 14 with **stages 14,
+15 and 16 absent** — not skipped, not deferred, gone, with contiguous numbering so nothing
+looked wrong. The same run skipped stage 13, batch inference, the 96 predictions the request
+was for.
+
+Neither is a knowledge failure, which is why neither is fixed by more text. Both are
+failures of a loop whose exit condition the agent owns: nothing anywhere said *you are not
+finished*, because being finished was its own call.
+
+```bash
+S=skills/ml-planning/scripts
+python3 $S/next.py PLAN.md --artifacts artifacts/     # one directive
+# ... do exactly that, then ...
+python3 $S/report.py --task 5 --state x --artifact artifacts/processing-report.json
+python3 $S/next.py PLAN.md --artifacts artifacts/     # the next one
+```
+
+`next.py` dispatches in a fixed order — repair a plan missing a stage, finish local work in
+hand, poll a submitted execution, wait on an unanswered question, execute the
+lowest-numbered ready task, or report complete. Prerequisites come from `stages.toml`'s
+`requires`, never from task numbering: stage 13 depends on 10 and not 12, and no rule based
+on integers knows that. Against that run's own plan it answers `repair-plan: stages missing
+14, 15, 16`.
+
+`report.py` is the only sanctioned writer of task state. It refuses what the stage declares
+must not happen, and it **writes, re-lints, and reverts its own write** if the result would
+fail — so the plan is lint-clean after every report, not just after the ones someone
+remembered to check. Working out of dispatch order is *recorded rather than blocked*, because
+refusing every off-dispatch step would make the tool something to work around, and a bypassed
+control protects nothing.
+
+**Two things this does not do.** It cannot prevent a hand edit of `PLAN.md`; it makes one not
+count. And it does nothing at all if nothing calls it — see the activation row above, which
+governs every claim on this page.
+
+For scale: `aidlc-workflows` owns sequencing and gate status outright, with state transitions
+restricted to its own tools, across 51 TypeScript files and 96,134 lines. This is about 600
+lines of Python holding two of the same properties — one directive at a time, one writer of
+state — by digest and convention rather than by architecture.
 
 ## The measurement that shaped stage 6
 

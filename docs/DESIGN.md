@@ -158,10 +158,43 @@ pipeline composition, which belongs to `ml-planning` — the planner decides the
 sequence, and composing that sequence into a `Pipeline` object is the same decision
 expressed as code rather than as `PLAN.md`.
 
-The machine-readable form is `skills/ml-planning/references/stage-catalogue.txt`,
-which `plan-lint.py` reads to derive each task's expected owner and `validate.py`
-cross-checks against both this table and `skills/`. Three copies of one list drift;
-two of the three are checked.
+The machine-readable form is `skills/ml-planning/references/stages.toml`, and it is
+declarative rather than a list. Each stage declares five things:
+
+```toml
+[stages.13]
+name = "Batch inference"
+owner = "release-and-serve"
+execution = "DELIVERABLE"    # ALWAYS | DELIVERABLE | CONDITIONAL
+requires = [10, 12]
+mode = "pipeline"            # inline | pipeline
+produces = "batch-predictions/"
+```
+
+It replaced two flat two-column files, `stage-catalogue.txt` and `stage-artefacts.txt`.
+The format comes from reading how `aidlc-workflows` actually enforces its flow: its 33
+stage files declare `execution`, `requires_stage`, `lead_agent`, `mode`, `consumes` and
+`produces` in frontmatter, and its engine reads that graph instead of the agent
+re-deriving it in prose. `tomllib` has been in the standard library since Python 3.11, so
+this costs no dependency — the same reason `leakage-screen.py` computes its statistics by
+hand.
+
+**Four rules were previously inexpressible, and each traces to an observed failure.**
+`execution` classes, because `[S]` used to require a reason and never check what it said.
+`requires`, because ordering compared task numbers and stage 13 depends on 10 and not 12.
+`mode`, because a run put five stages in flight with no state meaning "submitted, awaiting
+a remote result". And `PRESET` coverage, because a plan declared sixteen stages and wrote
+fourteen tasks, with contiguous numbering so nothing looked wrong.
+
+**The validator then caught two contradictions in this design**, which is the part worth
+recording. Declaring stages 4, 6, 7, 9 and 10 as `ALWAYS` while keeping three presets that
+exclude them made those presets unsatisfiable — so `ALWAYS` means *not skippable once a
+preset includes it*, not *every preset must include it*. A closure rule then found
+`retrain-existing` omitting the leakage screen, and `inference-only` serving a model whose
+quality gate appeared nowhere. The first was a real gap. The second needed a third concept
+rather than a bigger preset: `presets-satisfied-externally` records that the model was
+trained and gated in the run that registered it, because expanding the preset to re-run
+training would have destroyed the scope in order to satisfy a graph rule.
 
 Stage 6 exists because of a specific failure: in a validation run the pipeline
 reported MAE 18.8 against a gate of 130 and every structural check passed, while
@@ -207,19 +240,23 @@ it returns.
 
 ## Skills
 
-| Skill | Stages | Body | Standalone | Status |
+| Skill | Stages | Body | Standalone | Ships a script |
 |---|---|---:|---|---|
-| `ml-planning` | 1, 2, presets, `PLAN.md`, pipeline composition | 591 → ~320 | orchestrator | exists, over the 500-line cap, absorbs pipeline composition |
-| `leakage-guard` | 4 | 260 | ✔ | exists, two-layer, unchanged by this consolidation |
-| `runtime-and-containers` | cross-cutting: 5, 7, 9, 13, 14 | 309 | ✔ | exists, unchanged |
-| `data-pipeline` | 3, 5 | ~200 | ✔ | to build |
-| `train-and-tune` | 6, 7, 8 | ~250 | ✔ | to build |
-| `evaluate-and-gate` | 9, 10 | ~200 | ✔ | to build |
-| `release-and-serve` | 11, 12, 13, 14 | 306 → ~400 | ✔ | rename of `release-and-serve`, absorbing 13 and 14 |
-| `monitor-and-retrain` | 15, 16 | 178 → ~220 | ✔ | rename of `monitor-and-retrain`, absorbing 16 |
+| `ml-planning` | 1, 2, presets, `PLAN.md`, pipeline composition | 497 | orchestrator | `plan-lint.py`, `next.py`, `report.py` |
+| `release-and-serve` | 11, 12, 13, 14 | 369 | ✔ | |
+| `runtime-and-containers` | cross-cutting: 5, 7, 9, 13, 14 | 309 | ✔ | |
+| `leakage-guard` | 4 | 303 | ✔ | `leakage-screen.py` |
+| `monitor-and-retrain` | 15, 16 | 213 | ✔ | |
+| `train-and-tune` | 6, 7, 8 | 187 | ✔ | `training-check.py` |
+| `evaluate-and-gate` | 9, 10 | 184 | ✔ | `quality-gate.py` |
+| `data-pipeline` | 3, 5 | 165 | ✔ | `contract-check.py` |
 
-Eight skills, roughly 2,160 lines of body when complete, every file inside the cap.
-The fourteen-skill version projected 4,600.
+**Measured, not projected: 2,227 lines of body across eight files, every one inside the
+cap.** The fourteen-skill version projected 4,600. `ml-planning` is the only file that has
+had to be pushed back under the line, four times — and the fourth time was the lesson:
+shaving sentences kept landing 2 to 16 lines over, so whole sections moved to `references/`
+instead. Nibbling at a body that is 40 lines too long is how a body ends up 3 lines too long
+repeatedly.
 
 Two properties of the earlier design are preserved and worth stating, because a
 consolidation is where they get lost. Every stage marked standalone is still callable
@@ -229,63 +266,137 @@ scope presets still name stages rather than skills. And composing stages into a
 was `sagemaker-pipeline`'s reason for existing, and folding it into `ml-planning`
 keeps the property while removing the file.
 
-Two costs are real. `monitor-and-retrain` is at this writing still
-**byte-identical** to its source in `kiro-power-sagemaker-tabular-mlops`, which was
-deliberate: it made the predecessor a regression comparison. Renaming and extending it
-ends that. (`release-and-serve` already diverged by 48 lines when it gained a
-`gitCommit` fallback, so that property was gone there already.) And the skills carry 49
-cross-references to each other by name; every one pointing at a renamed skill has to
-move with it, which `validate.py` does not check — only the catalogue cross-check is
-mechanical.
+Two costs came due. `monitor-and-retrain` **was** byte-identical to its source in
+`kiro-power-sagemaker-tabular-mlops`, which was deliberate: it made the predecessor a
+regression comparison. Absorbing stage 16 ended that, knowingly. (`release-and-serve` had
+already diverged by 48 lines when it gained a `gitCommit` fallback, so the property was gone
+there first.) And the skills carry 49 cross-references to each other by name; every one
+pointing at a renamed skill had to move with it, which `validate.py` does not check — only
+the `stages.toml` cross-check and the reference-pointer check are mechanical.
 
-## Roadmap
+## What was built, and what each decision cost
 
-Three of eight skills exist and one of the three is over the line cap. The table above
-is the design; this is the order it gets built in and the reason for that order. It
-lives here rather than in a conversation because a workflow that insists decisions be
-written where a later reader can find them should not except its own.
+The roadmap this section used to hold is spent: all eight skills exist and every body is
+inside the cap. What replaces it is the record of the trades, because a design document
+that only lists intentions is the half nobody can check later.
 
-Two mechanical progress indicators, so the backlog is not a prose list anyone has to
-trust. `validate.py` fails while `stage-catalogue.txt`, `skills/` and the stage table
-disagree — it is red right now, and the red names exactly what is missing. And
-`plan-lint.py` prints `N stage(s) owned by no skill yet` on every run, so the gap is
-visible from inside a plan.
+| Decision | What it bought | What it cost |
+|---|---|---|
+| Sixteen stages, eight skills | ~2,160 lines of body instead of ~4,600; every body inside the 500-line cap | attribution is derived rather than declared, so a stage without `Stage: N` is outside every rule |
+| `stages.toml` over two flat lists | four rules that could not be written down before | a third file format in the power, and a plan must now declare `PRESET` |
+| Refusal over prose, everywhere | 111 checking refusals plus 30 computed ones, all independent of which model is driving | five scripts to maintain, and each new rule needs a fixture or the build fails |
+| `next.py` / `report.py` | the agent no longer decides whether work remains | a plan edited by hand stops earning directives until reconciled |
+| Keeping `kiro-power-sagemaker-tabular-mlops` | a regression comparison with a complete end-to-end record | two powers to keep in step, and `monitor-and-retrain` is no longer byte-identical to its source |
+| China partition as the verified baseline | every capability claim carries a verdict someone measured | content reads as more regional than it is, and a reader outside that partition pays attention tax |
 
-### Step 1 — record the design, and let the checks go red
+### Control inversion: the failure that better instructions could not fix
 
-Rewrite `stage-catalogue.txt` and this document first. `validate.py` then fails with
-one line per skill that exists but owns no stage, and one warning per catalogue name
-the stage table does not mention. That output is the todo list, generated rather than
-maintained.
+Round 10 compiled a real SageMaker Pipeline in `cn-north-1`, wrote 48 artefacts and 8 code
+files, read the shipped scripts, and ran `leakage-screen.py --help` unprompted. It was not
+an unwilling or careless run. Its plan stopped at task 14 and **stages 14, 15 and 16 were
+absent** — not skipped, not deferred, gone, with contiguous numbering so nothing looked
+wrong. The same run skipped stage 13, batch inference, the 96 predictions the request was
+for.
 
-### Step 2 — bring `ml-planning` inside the cap
+Neither is a knowledge failure. Both are failures of a loop whose exit condition the agent
+owns: nothing anywhere said *you are not finished*, because being finished was its own call.
+That is why the fix is not more text. `next.py` issues one directive at a time and
+`report.py` is the only sanctioned writer of task state. Against round 10's own plan,
+`next.py` answers `repair-plan: stages missing 14, 15, 16`.
 
-591 lines against a 500-line limit, and it has to absorb pipeline composition on top.
-This is first because it is the only current violation, and because every other skill
-cross-references it.
+**What it does not do, recorded because a control that oversells itself is worse than
+none.** It cannot stop a hand edit of `PLAN.md` — no script can. Instead the ledger digests
+the plan's semantic state, so an edit by any other route stops earning directives until
+reconciled: tampering is not blocked, it costs the agent its own next instruction. And it
+does nothing if nothing calls it, which is the activation problem, still answered only by a
+project steering line.
 
-### Step 3 — the two renames
+**Scale, against the thing it borrows from.** AI-DLC owns stage sequencing and gate status
+outright, with state transitions restricted to its own tools — an agent calling
+`aidlc-state.ts` directly gets a state-guard error — across 51 TypeScript files and 96,134
+lines. This is about 600 lines of Python holding two of the same properties, one directive
+at a time and one writer of state, by digest and convention rather than by architecture.
+Whether convention is enough is the open question of this design, and round 11 is the test.
 
-`release-and-serve` → `release-and-serve`, absorbing batch and real-time inference.
-`monitor-and-retrain` → `monitor-and-retrain`, absorbing the retraining
-decision. Both carry their existing content forward; the work is the new stages and
-the 49 cross-references.
+### What round 11 is meant to settle
 
-### Step 4 — the three new skills, in dependency order
+Written before the run rather than after it, because a criterion chosen once the result is
+in is not a criterion. Each row names what would count as the control layer failing, so a
+disappointing run can be told apart from a wrong design.
 
-```
-data-pipeline → train-and-tune → evaluate-and-gate
-```
+| Question | Passes if | Fails if |
+|---|---|---|
+| Does the loop get used at all? | `PLAN.state.json` exists and its directive count roughly matches the task count | no ledger — the run planned and executed without ever asking what was next |
+| Is truncation gone? | every stage the `PRESET` names has a task, at the end as well as the start | stages missing from the tail again, which would mean `repair-plan` was issued and ignored |
+| Does the deliverable survive? | stage 13 or 14 is `[x]`, or `[S]` with `waived-by: user` | `[S]` on a deliverable with a reason about implementation |
+| Is concurrency recorded honestly? | parallel pipeline stages are `[>]` with an `execution:` | five tasks sharing `[R]` again |
+| Are the rules satisfiable in practice? | the plan is lint-clean at the end without hand repair | a run that fought the linter, or reported and reverted repeatedly |
+| Did bookkeeping cost ML work? | artefact and code counts at least round 10's 48 and 8 | substantially less real work, which would mean the loop taxes the wrong thing |
 
-Baselines sit inside `train-and-tune` and come before training within it, because a
-model cannot be judged before something exists to judge it against and a run that
-trains first treats whatever number it gets as the result.
+**The interesting failure is the last row.** Every mechanism added since round 9 makes the
+agent account for itself more, and round 10 already showed the trade: ML work rose while
+bookkeeping quality fell. If round 11 reverses that — clean books, less built — the control
+layer is buying the wrong thing, and the answer is fewer directives per unit of work rather
+than better ones.
 
-Each ships with a script from the start, not a description of one:
-`leakage-screen.py`, `contract-check.py`, `baselines.py`, `quality-gate.py`. A script
-is deterministic, it is executable without loading into context, and it is the only
-form in which a rule becomes a refusal rather than a paragraph. `plan-lint.py` is the
-existing proof: 541 lines of code that replaced prose nobody would have checked.
+One measurement is not available and should not be claimed: all rounds so far ran on the
+same model. Whether these refusals help a weaker model is reasoned from mechanism — 111
+checking refusals plus 30 computed ones are model-independent, while activation is not —
+and remains untested.
+
+
+
+### Three faults a validation run found in the checks themselves
+
+**The leakage screen refused good features, and the cause was circular.** The
+direct-prediction bound *is* the quality gate; the gate is derived from the strongest
+baseline; a baseline is usually a column of the data. So any good column scores near the
+bound and got refused for being good. My first move was to implement the documented
+`minDirectPredictionMarginPct`, and that was wrong on its own terms — a margin widens the
+band and refuses *more*. It is implemented, because a declared band beats a bare comparison
+and the reference has specified it all along, but the fix is that tier 2 became exemptable
+and only tier 2: naming an input in `assumedKnownAtPredictionTime` **with a reason** turns
+the refusal into a recorded assumption carrying the measurement. The statistic cannot tell a
+leak from a strong feature; only a claim about when the value is knowable can, and that
+claim belongs to whoever signs the contract. Correlation and AUC stay unexemptable, and the
+probe is passed an empty exemption map so no contract can disarm the self-check.
+
+**The gate failed the wrong way inside a Pipeline.** A metric missing its bound is a result,
+not a crashed job; the successor should be a `ConditionStep` routing on
+`registrationAllowed`. Round 10 wrote its own 110-line wrapper to get that, and the wrapper
+was right. `--no-fail-on-refusal` now does it, non-zero stays the default because outside a
+Pipeline the exit code is what makes a refusal hold, and the suppression is recorded in the
+report — without that trace the flag would quietly convert a refusal into advice.
+
+**`declaredAt` could be re-declared after seeing the score.** Round 10 found this in itself:
+it rewrote its contract and left the old timestamp, which would have forged the very
+evidence the field exists to provide. So the bound must now be reproducible — `derivedFrom`
+names the baseline artefact, the baseline within it, and the margin, and the gate redoes the
+arithmetic. Widening a bound after the fact breaks a calculation whatever the timestamp
+says, because the timestamp is the field an author controls and the baseline's measurements
+are not. Stated limit: rewriting the baseline report too defeats this.
+
+### The regression suites, and why the positive half matters more
+
+Over one day the linter grew from 7 rules to 11, and **every new rule was verified only to be
+capable of erroring** — never that a complete, honest plan could still satisfy all of them.
+Between rounds 9 and 10, ML work rose and bookkeeping quality fell, and a linter that cannot
+be satisfied was the obvious suspect nobody had ruled out. The old fixtures lived in a
+scratch directory and are gone, so the checks they covered had no reproducible evidence.
+
+`scripts/trial-plan-lint.py` now generates a well-formed plan for **every preset** and
+requires all of them to pass, then breaks one condition at a time and asserts that *the
+intended* check fires. It reads the label inventory from `plan-lint.py`'s own source, so a
+check added without a fixture is reported as uncovered and fails the run.
+
+The positive half paid for itself immediately: all four generated plans were rejected,
+because a fresh plan has no `[x]` and `LAST_DONE: 0 @ <timestamp>` is refused — the only
+legal value is `none`, which the template had never shown. An agent writing its first plan
+had no way to get that right.
+
+Three suites, 45 cases, all inside `validate.py`. Verified by breaking a refusal on purpose:
+with `check_skippability` stubbed to return early, `validate.py` fails and names the fixture
+that stopped holding.
 
 ### What gates each skill
 
@@ -294,12 +405,19 @@ A skill ships when all five hold:
 1. **It passes the three-domain check**, and everything that failed the check sits in
    `references/` rather than in the body or the bin.
 2. **Its refusals are in `SKILL.md`, not in a reference or a comment**, and each has a
-   test that proves it fires. A screen that has never refused anything is
-   indistinguishable from a screen with a sign error, and both report PASS.
+   **committed** fixture that proves it fires. A screen that has never refused anything is
+   indistinguishable from a screen with a sign error, and both report PASS. "Committed"
+   because the previous fixtures lived in a scratch directory and are gone, which is how
+   eleven linter rules came to have no reproducible evidence behind them.
 3. **The body is under 500 lines** and carries no statistic, threshold or probe
    construction specific to one modality. Those are the reference layer's job.
-4. **`validate.py` and `plan-lint.py` pass**, including the catalogue cross-check.
-5. **`ml-planning`'s "not yet implemented" list no longer names it.**
+4. **`validate.py` passes**, which includes the `stages.toml` cross-check and running all
+   three fixture suites — so a refusal that stopped holding fails the build rather than
+   waiting for someone to notice.
+5. **A well-formed plan can still satisfy every rule.** Added after the fact and it is the
+   one that would have caught the real regression: the linter reached eleven rules with
+   each verified only to be *capable of erroring*, and none verified to be satisfiable.
+   `trial-plan-lint.py` generates a passing plan per preset, so this is now mechanical.
 
 Four of the five are checkable by someone other than the author. The third needs
 judgement, and this is the cheap version of it:
