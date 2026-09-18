@@ -23,6 +23,7 @@ import argparse
 import json
 import re
 import subprocess
+import shutil
 import sys
 import urllib.request
 from pathlib import Path
@@ -439,7 +440,48 @@ def check_skills() -> tuple[int, int]:
     return len(manifest), len(repo_owned)
 
 
+def check_regressions(skip: bool) -> None:
+    """Run the two committed suites, so a broken refusal fails validation.
+
+    Every script in this power exists because a rule that stays prose holds only while
+    someone remembers it. The same is true one level up: a suite nobody runs is prose about
+    the rules. The last set of plan-lint fixtures lived in a scratch directory and vanished,
+    which is precisely how the linter reached eleven rules with none of them checked against
+    a plan that ought to pass.
+    """
+    suites = [
+        ("scripts/trial-plan-lint.py", []),
+        ("scripts/trial-control.py", ["skills/ml-planning/scripts"]),
+    ]
+    if skip:
+        for name, _ in suites:
+            warnings.append(f"{name} was not run (--no-regressions)")
+        return
+    for name, extra in suites:
+        path = ROOT / name
+        if not path.is_file():
+            fail(f"{name} is missing -- the refusals it covers have no evidence behind them")
+            continue
+        proc = subprocess.run(
+            [sys.executable, str(path), *extra],
+            capture_output=True, text=True, cwd=ROOT,
+        )
+        if proc.returncode != 0:
+            tail = [l for l in (proc.stdout + proc.stderr).splitlines() if "✘" in l][:6]
+            detail = ("\n        " + "\n        ".join(tail)) if tail else ""
+            fail(f"{name} reports failures, so a refusal this power advertises is not "
+                 f"holding.{detail}")
+
+    # Running the suites makes Python cache the modules they import, and this validator
+    # fails on a git-ignored file in the tree. Clean up after ourselves rather than
+    # reporting a fault this check created.
+    for cache in ROOT.rglob("__pycache__"):
+        if ".git" not in cache.parts:
+            shutil.rmtree(cache, ignore_errors=True)
+
+
 def check_no_escaping_paths() -> None:
+
     """The checklist forbids referencing paths outside the plugin root."""
     for path in ROOT.rglob("*"):
         if path.is_symlink():
@@ -457,6 +499,11 @@ def main() -> int:
         "--allow-skip-schema",
         action="store_true",
         help="do not fail when a schema cannot be loaded (offline, no jsonschema)",
+    )
+    parser.add_argument(
+        "--no-regressions",
+        action="store_true",
+        help="skip the committed fixture suites (they are the evidence; skipping is a WARN)",
     )
     args = parser.parse_args()
 
@@ -477,6 +524,7 @@ def main() -> int:
     check_no_escaping_paths()
     has_power_md = check_power_md(ROOT / "POWER.md")
     check_stage_catalogue()
+    check_regressions(args.no_regressions)
     check_import_cleanliness()
 
     for w in warnings:

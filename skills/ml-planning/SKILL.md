@@ -190,6 +190,7 @@ reading the conversation, and nothing else may be the authority on what has been
 
 PARTITION: aws-cn
 SDK: 3.22.0
+PRESET: full-lifecycle
 LAST_DONE: 2 @ 2026-09-16T17:40:00+08:00
 
 1. [x] **[Task]** — [what happened]. _(Stage: 1 | Skill: ml-planning)_
@@ -197,6 +198,12 @@ LAST_DONE: 2 @ 2026-09-16T17:40:00+08:00
 3. [?] **[Task]** — [what a person has to decide]. _(Stage: 5 | Skill: none; would be: data-pipeline)_
 4. [ ] **[Task]** — [what will happen]. _(Stage: 6 | Skill: none; would be: train-and-tune)_
 ```
+
+**A plan with nothing finished yet writes `LAST_DONE: none`, not `0`.** That is not a
+nicety: `0 @ <timestamp>` is refused, because a cursor naming a task that is not `[x]`
+is a cursor nobody moved. The regression suite found this by generating a fresh plan for
+every preset and watching all four be rejected — the template had only ever shown the
+resumed form.
 
 | State | Meaning |
 |---|---|

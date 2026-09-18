@@ -306,10 +306,28 @@ python3 scripts/validate.py --refresh  # re-fetch the schema first
 
 Validates `plugin.json` against the [Agent Plugins 1.0.0](https://agent-plugins.org/)
 schema, checks that every skill has a `SKILL.md` whose frontmatter `name` matches its
-directory, cross-checks the stage catalogue against `skills/` and against
-`ml-planning`'s own stage table, and **fails when a git-ignored file is sitting in the
-tree**. A schema it cannot load is a hard failure, not a warning — a validator reporting
-success while skipping its main check is worse than no validator.
+directory, cross-checks `stages.toml` against `skills/` and against `ml-planning`'s own
+stage table, **runs the two committed fixture suites**, and **fails when a git-ignored file
+is sitting in the tree**. A schema it cannot load is a hard failure, not a warning — a
+validator reporting success while skipping its main check is worse than no validator.
+
+The regression step is there because the previous fixtures were not. They lived in a scratch
+directory and are gone, so the checks they covered have no reproducible evidence behind them.
+Worse, over one day the linter grew from 7 rules to 11 and **each new rule was verified only
+to be capable of erroring** — never that a complete, honest plan could still satisfy all of
+them. So `trial-plan-lint.py` now generates a well-formed plan for every preset in
+`stages.toml` and requires all of them to pass, then breaks one condition at a time and
+asserts that *the intended check* fires. It also reads the label inventory out of
+`plan-lint.py`'s own source, so **a check added without a fixture is reported as uncovered
+and fails the run**.
+
+```bash
+python3 scripts/trial-plan-lint.py                            # 15 checks, 4 presets
+python3 scripts/trial-control.py skills/ml-planning/scripts    # 13 control-layer cases
+```
+
+Breaking a refusal on purpose was checked: with `check_skippability` stubbed out,
+`validate.py` fails and names the fixture that stopped holding.
 
 That last check exists because `.gitignore` protects the repository and not the artefact:
 **"Import power from a folder" copies the working directory**, so a file ignored because
