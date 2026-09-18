@@ -224,41 +224,23 @@ against it:
 ALWAYS means *within a preset that includes it*. `data-prep-only` legitimately stops before
 modelling; what it may not do is include the leakage screen and then wave it away.
 
-The DELIVERABLE class exists because of one run. It skipped batch inference — the 96
-predictions the user actually asked for — with the reason that the pipeline definition did
-not yet contain a Batch Transform. Implementation absent, therefore deliverable absent, and
-the plan recorded it as a decision. **The old rule checked that a reason existed and never
-what it said.** A deliverable may still be dropped, but only when the user says so, and the
-linter also refuses a plan that skips *all* of them: whatever else such a run produced, it
-did not produce the thing it was for.
+DELIVERABLE exists because a run skipped batch inference — the 96 predictions the request was
+for — with a reason about the pipeline definition, and `[S]` allowed it: **the old rule
+checked that a reason existed and never what it said.** A deliverable may still be dropped,
+but only when the user says so, and a plan that skips *all* of them is refused.
 
 ### `[>]`: submitted to a remote executor
 
-`[-]` means you are working on it now, locally, and at most one task may be. That is right
-for inline work and wrong for a pipeline: a run submitted a SageMaker Pipeline with five
-stages genuinely in flight, had no state meaning "submitted, awaiting a remote result", and
-wrote `[R]` on all five — the closest wrong answer available. **The vocabulary forced a
-false record.**
-
 ```markdown
-5. [>] **Process the data** — execution: arn:aws-cn:sagemaker:cn-north-1:…:pipeline-execution/abc123
+5. [>] **Process the data** — execution: arn:aws-cn:sagemaker:…:pipeline-execution/abc123
    _(Stage: 5 | Skill: data-pipeline)_
 ```
 
-`[>]` is not capped, because one submission legitimately starts several stages. It requires
-`execution:` naming the run — an id that exists can be checked, and one that does not was
-invented — and it is only legal on a stage whose declared `mode` is `pipeline`. It is not
-terminal: the result has not arrived, so nothing downstream may treat it as settled.
-
-`[?]` and `[R]` are not decoration. `[?]` is where a human approval sits by design;
-`[R]` is where a failed quality gate puts you. Written as `[-]`, "someone is working on
-this" and "this is blocked on a person" are the same state to a resumed session.
-
-The three header lines are the resume contract: `PARTITION` (`aws`, `aws-cn`,
-`aws-us-gov`) so a resumed session reads it instead of assuming the global one, `SDK`
-for the resolved version, and `LAST_DONE` as the cursor — the highest `[x]` task and
-when it completed, or `none`. On resume, read those three and the first unfinished task
-before anything else.
+`[-]` is local work in hand and caps at one. `[>]` is uncapped, because one submission
+legitimately starts several stages — a run put five in flight and wrote `[R]` on all five,
+the closest wrong answer its vocabulary offered. It requires `execution:` naming the run, is
+legal only on a `mode = "pipeline"` stage, and is not terminal: nothing downstream may treat
+it as settled. `references/control-inversion.md` has the rest.
 
 ### `[?]` means you asked, `[~]` means you went round it, and an answer must move the state
 
@@ -332,20 +314,39 @@ and by then the sequence that caused it cannot be reconstructed.
 
 Without `--artifacts` it checks internal consistency: numbering, one state marker per task,
 at most one `[-]`, prerequisites from `stages.toml` settled, `[S]` permitted by the stage's
-class, `[!]` with `refused:` and a live `blocks:`, `[?]` with `asked:` and nothing
-progressing downstream, `[~]` with `instead-of:` and a live `blocked-by:`, `[>]` with
-`execution:` on a pipeline-mode stage, `PRESET` fully covered, `LAST_DONE` agreeing with the
-highest `[x]`, and every `Skill:` matching the owner its `Stage:` implies.
+class, `[!]` with `refused:` and a live `blocks:`, `[?]` with `asked:` and nothing progressing
+downstream, `[~]` with `instead-of:` and a live `blocked-by:`, `[>]` with `execution:` on a
+pipeline-mode stage, `PRESET` fully covered, `LAST_DONE` agreeing with the highest `[x]`, and
+every `Skill:` matching the owner its `Stage:` implies.
 
 **With `--artifacts` it stops reading your claims.** For every stage whose declared
 `produces` is on disk, the task must not say the work has not happened: `[ ]`, `[-]` and
-`[?]` all fail against an existing artefact.
-
-That closes a hole the other rules cannot, and the reason is worth knowing: the ordering
-rule forbids `[x]` above an unsettled task, so **understating progress passed while
-overstating it would have been refused instantly.** A run left five tasks as `[ ]` with all
+`[?]` all fail against an existing artefact. That closes a hole the others cannot. The
+ordering rule forbids `[x]` above an unsettled task, so **understating progress passed while
+overstating it would have been refused instantly** — a run left five tasks `[ ]` with all
 five artefacts present and was accepted. A check that rewards understatement is built
-backwards, so this one reads the workspace and asks the plan to account for what is there.
+backwards.
+
+### Do not decide for yourself whether there is work left
+
+`next.py` says what to do next; `report.py` is the only sanctioned way to write a task's
+state back. Loop them and the sequencing decision leaves you:
+
+```bash
+python3 "$(dirname "$LINT")/next.py" PLAN.md --artifacts artifacts/
+# ... do exactly that one thing, then ...
+python3 "$(dirname "$LINT")/report.py" --task 5 --state x --artifact artifacts/…
+```
+
+A run compiled a real Pipeline and 48 artefacts, and its plan stopped at task 14 with stages
+14, 15 and 16 **absent** — numbering contiguous, nothing looking wrong. Nothing said *you are
+not finished*, because being finished was the agent's own call. Against that plan `next.py`
+answers `repair-plan: stages missing 14, 15, 16`.
+
+`report.py` refuses what `stages.toml` forbids — `[S]` on an ALWAYS stage, `[x]` with no
+artefact on disk — and reverts its own write if the result fails `plan-lint.py`.
+`references/control-inversion.md` has the dispatch order, every refusal, and the two things
+this layer cannot do.
 
 ## Composing the stages into a Pipeline
 
