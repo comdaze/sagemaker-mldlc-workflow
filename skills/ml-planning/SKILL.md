@@ -348,7 +348,11 @@ not finished*, because being finished was the agent's own call. Against that pla
 answers `repair-plan: stages missing 14, 15, 16`.
 
 `report.py` refuses what `stages.toml` forbids — `[S]` on an ALWAYS stage, `[x]` with no
-artefact on disk — and reverts its own write if the result fails `plan-lint.py`.
+artefact on disk — and reverts its own write if the result fails `plan-lint.py`. It also
+**consults the stage's gate rather than trusting that one ran**: where the artefact records its
+own verdict it reads the declared field, and where the gate is a separate program it runs it.
+Until that existed, `[x]` meant only that a file of the right name was present, so a gate that
+had said no could still be recorded as passed.
 `references/control-inversion.md` has the dispatch order, every refusal, and the two things
 this layer cannot do.
 

@@ -89,6 +89,13 @@ requires = [1]
 mode = "inline"
 produces = "dataset-manifest.json"
 holds = "hard"
+# The gate for this stage is a separate program, so `verdict` cannot express it -- its answer
+# lives in an exit code, not in a field. report.py now RUNS it before accepting [x]. Until it
+# did, nothing required these checkers to have run at all: a run could write a manifest by
+# hand and report the stage complete, and the 25 refusals in contract-check.py would never
+# have been consulted. Both checkers take a prefix of their arguments, so each stage feeds it
+# only what exists by then.
+gate = { script = "data-pipeline/scripts/contract-check.py", needs = ["dataset-manifest.json"] }
 
 [stages.4]
 name = "Leakage guard"
@@ -111,6 +118,7 @@ execution = "ALWAYS"
 requires = [4]
 mode = "pipeline"
 produces = "processing-report.json"
+gate = { script = "data-pipeline/scripts/contract-check.py", needs = ["dataset-manifest.json", "processing-report.json"] }
 
 # ---------------------------------------------------------------- phase 3: modelling
 
@@ -121,6 +129,7 @@ execution = "ALWAYS"
 requires = [5]
 mode = "pipeline"
 produces = "baseline-report.json"
+gate = { script = "train-and-tune/scripts/training-check.py", needs = ["baseline-report.json"] }
 
 [stages.7]
 name = "Training"
@@ -129,6 +138,7 @@ execution = "ALWAYS"
 requires = [6]
 mode = "pipeline"
 produces = "training-report.json"
+gate = { script = "train-and-tune/scripts/training-check.py", needs = ["baseline-report.json", "training-report.json"] }
 
 [stages.8]
 name = "Tuning"
@@ -137,6 +147,7 @@ execution = "CONDITIONAL"
 requires = [7]
 mode = "pipeline"
 produces = "tuning-report.json"
+gate = { script = "train-and-tune/scripts/training-check.py", needs = ["baseline-report.json", "training-report.json", "tuning-report.json"] }
 
 # ---------------------------------------------------------------- phase 4: quality
 

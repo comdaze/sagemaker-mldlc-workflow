@@ -196,6 +196,79 @@ def check_verdict(path: Path, spec: dict, stage: str) -> None:
         )
 
 
+def run_gate(spec: dict, stage: str, given: list[str], artifacts: str | None,
+             plan: Path) -> str | None:
+    """Run the stage's own checker before accepting `[x]`, and refuse if it says no.
+
+    `verdict` covers the gates that write their answer into their artefact. These five do not:
+    `contract-check.py` and `training-check.py` are separate programs whose answer is an exit
+    code, so the only way to consult them is to run them. Until this existed, nothing required
+    them to have run at all -- a manifest written by hand and a report of completion were
+    enough, and 55 refusals across the two checkers went unconsulted.
+
+    Both take a PREFIX of their arguments, which is what makes one declaration per stage work:
+    stage 6 feeds the baseline report alone, stage 7 adds the training report, stage 8 adds
+    tuning. Declared in stages.toml rather than hardcoded here, so a new stage with a checker
+    needs no change to this file.
+
+    A needed input that is absent is a refusal, not a skip. A gate that cannot run has not
+    passed, and quietly treating "could not check" as "checked" is how the existence check
+    came to be the only thing standing behind six stages.
+    """
+    g = spec.get("gate")
+    if not isinstance(g, dict) or not g.get("script"):
+        return None
+
+    script = HERE.parent.parent / g["script"]
+    if not script.is_file():
+        raise Refusal(
+            f"stage {stage} declares its gate is `{g['script']}`, which is not at {script}. "
+            "A declared gate that cannot be found is not a gate."
+        )
+
+    roots = [Path(p).parent for p in (given or [])]
+    if artifacts:
+        roots.append(Path(artifacts))
+    roots += [plan.parent, plan.parent / "artifacts", plan.parent / "contracts"]
+
+    args: list[str] = []
+    for name in g.get("needs", []):
+        hit = next((str(p) for p in (Path(x) for x in (given or [])) if p.name == name
+                    and p.is_file()), None)
+        if hit is None:
+            for r in roots:
+                cand = r / name
+                if cand.is_file():
+                    hit = str(cand)
+                    break
+                match = next(iter(sorted(r.rglob(name))), None) if r.is_dir() else None
+                if match is not None:
+                    hit = str(match)
+                    break
+        if hit is None:
+            looked = ", ".join(sorted({str(r) for r in roots}))
+            raise Refusal(
+                f"stage {stage}'s gate needs `{name}` and it was not found. Looked under: "
+                f"{looked}. A gate that cannot run has not passed, so the stage cannot be "
+                "recorded complete on it -- pass the file with --artifact, or point "
+                "--artifacts at the directory holding it."
+            )
+        args.append(hit)
+
+    proc = subprocess.run([sys.executable, str(script), *args],
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        out = (proc.stdout + proc.stderr).strip()
+        raise Refusal(
+            f"stage {stage}'s own gate refuses these artefacts, so the stage is not "
+            f"complete.\n  {script.name} {' '.join(Path(x).name for x in args)}\n"
+            + "\n".join("  " + l for l in out.splitlines()[:12])
+            + "\n  Fix what it names, or record the stage as [!] with `refused:` and a "
+              "`blocks:` list if the refusal is going to stand."
+        )
+    return f"{script.name} {' '.join(Path(x).name for x in args)}"
+
+
 def rewrite(text: str, num: int, state: str, fields: list[str], lint_mod) -> str:
     lines = text.splitlines(keepends=True)
     target = None
@@ -331,6 +404,8 @@ def main() -> int:
 
         check_permission(task, tasks, header, stages_doc, a.state)
         fields = validate(a.state, spec, a, stage)
+        gate_ran = run_gate(spec, stage, a.artifact or [], a.artifacts, plan) \
+            if a.state == "x" else None
         updated = rewrite(original, a.task, a.state, fields, lint_mod)
         plan.write_text(updated, encoding="utf-8")
 
@@ -355,12 +430,14 @@ def main() -> int:
         led["dispatched"] = None
         led.setdefault("reports", []).append(
             {"task": a.task, "state": a.state, "stage": stage, "at": now(),
-             "off_dispatch": off}
+             "off_dispatch": off, "gate": gate_ran}
         )
         nxt.save_ledger(ledger, led)
 
         print(f"RECORDED  task {a.task} -> [{a.state}]  (stage {stage}, "
               f"{spec.get('execution')})")
+        if gate_ran:
+            print(f"  gate passed: {gate_ran}")
         if fields:
             print("  " + " ".join(fields))
         if off:

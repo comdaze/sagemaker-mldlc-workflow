@@ -31,6 +31,19 @@ LAST_DONE: 2 @ 2026-09-18T10:00:00+08:00
 UNAPPROVED = GOOD.replace(
     'APPROVED: "approved, go with data-prep-only" @ 2026-09-18T13:05:00+08:00\n', "")
 
+# Stage 3's gate is contract-check.py, so `{}` is no longer enough to record that stage --
+# which is the point of wiring the checkers in. contract-check names six missing identity
+# fields for an empty object, and a digest that is not 64 hex characters is a seventh.
+MANIFEST = json.dumps({
+    "uri": "s3://bucket/data.csv",
+    "versionId": "v-abc123",
+    "etag": '"abc123"',
+    "digest": "sha256:" + "ab" * 32,
+    "sampleCount": 34944,
+    "readBackVerified": True,
+    "completeness": {"asserted": True, "expectedPerDay": 96},
+})
+
 TRUNC = GOOD.replace("PRESET: data-prep-only", "PRESET: full-lifecycle")
 
 
@@ -91,7 +104,7 @@ fails += not case("[?] without --asked", "REFUSED", rc, out, "asked")
 
 print("\n=== record, then advance ===")
 art = D / "artifacts"; art.mkdir(exist_ok=True)
-(art / "dataset-manifest.json").write_text("{}", encoding="utf-8")
+(art / "dataset-manifest.json").write_text(MANIFEST, encoding="utf-8")
 rc, out = run("report.py", "--plan", plan, "--task", "3", "--state", "x",
               "--artifact", art / "dataset-manifest.json")
 fails += not case("[x] with its artefact is recorded", "OK", rc, out, "RECORDED")
@@ -169,6 +182,56 @@ pv.write_text(VERDICT, encoding="utf-8")
 gate_ok.write_text("not json at all", encoding="utf-8")
 rc, out = run("report.py", "--plan", pv, "--task", "4", "--state", "x", "--artifact", gate_ok)
 fails += not case("an unreadable artefact is not a pass", "REFUSED", rc, out, "could not be read")
+
+print("\n=== a stage whose gate is a separate program must run it ===")
+# Stage 6's gate is training-check.py. Feed it a baseline report naming a strongest baseline
+# that is not in its own computed set -- the field the checker actually reads. Three earlier
+# attempts at this case broke `baselines` and `strongestBaseline`, which that artefact also
+# carries as aliases and the checker ignores, so the gate passed and proved nothing.
+GATED = GOOD.replace("PRESET: data-prep-only", "PRESET: batch-serving")
+for n, s in ((4, "Leakage"), (5, "Processing")):
+    GATED = GATED.replace(f"{n}. [ ] **", f"{n}. [x] **")
+GATED = GATED.replace("3. [ ] **Register the dataset**", "3. [x] **Register the dataset**")
+GATED += "".join(
+    f"{n}. [ ] **T{n}** _(Stage: {n} | Skill: {o})_\n" for n, o in (
+        (6, "train-and-tune"), (7, "train-and-tune"), (8, "train-and-tune"),
+        (9, "evaluate-and-gate"), (10, "evaluate-and-gate"),
+        (11, "release-and-serve"), (12, "release-and-serve"), (13, "release-and-serve")))
+
+base = art / "baseline-report.json"
+train = art / "training-report.json"
+# The bound must be derivable from the strongest baseline, which is check_bound's rule --
+# a report without it is refused for that reason and would have masked what this case tests.
+good_base = {"metric": "mae",
+             "computed": [{"name": "mean", "score": 180.0},
+                          {"name": "yesterday", "score": 140.0}],
+             "strongest": "yesterday",
+             "quality": {"metric": "mae", "bound": 138.6, "marginPct": 1.0,
+                         "derivedFrom": "yesterday",
+                         "contract": "contracts/quality-gate-contract.json"}}
+pg = D / "gated.md"
+
+pg.write_text(GATED, encoding="utf-8")
+base.write_text(json.dumps(good_base), encoding="utf-8")
+rc, out = run("report.py", "--plan", pg, "--task", "6", "--state", "x", "--artifact", base)
+fails += not case("the gate runs and its name is recorded", "OK", rc, out, "gate passed")
+
+pg.write_text(GATED, encoding="utf-8")
+base.write_text(json.dumps({**good_base, "strongest": "not-computed"}), encoding="utf-8")
+rc, out = run("report.py", "--plan", pg, "--task", "6", "--state", "x", "--artifact", base)
+fails += not case("the checker's own refusal reaches the caller", "REFUSED", rc, out,
+                  "not among the computed set")
+
+# Stage 7's gate needs the baseline AND the training report. Supplying only the training
+# report satisfies `produces` -- so the produces check passes and the gate is what refuses,
+# which is the ordering this case has to exercise.
+pg.write_text(GATED.replace("6. [ ] **T6**", "6. [x] **T6**"), encoding="utf-8")
+train.write_text(json.dumps({"status": "Completed"}), encoding="utf-8")
+base.unlink(missing_ok=True)
+rc, out = run("report.py", "--plan", pg, "--task", "7", "--state", "x", "--artifact", train)
+fails += not case("a gate that cannot run has not passed", "REFUSED", rc, out,
+                  "cannot run has not passed")
+train.unlink(missing_ok=True)
 
 print(f"\n{'all passed' if not fails else str(fails) + ' failed'}")
 sys.exit(1 if fails else 0)
