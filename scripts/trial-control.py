@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Break next.py and report.py one condition at a time, and check the refusal is the
 intended one rather than merely some refusal."""
+import json
 import os
 import shutil
 import subprocess
@@ -142,6 +143,32 @@ rc, out = run("report.py", "--plan", pu2, "--task", "3", "--state", "x", "--arti
 fails += not case("calling report.py directly does not bypass the approval gate", "REFUSED", rc, out, "APPROVED")
 rc, out = run("report.py", "--plan", pu2, "--task", "1", "--state", "x")
 fails += not case("planning stages are exempt: they produce the plan to be approved", "OK", rc, out)
+
+print("\n=== an artefact that records its own refusal cannot be [x] ===")
+# Stage 3 must be settled first, or the ordering and prerequisite rules fire before the
+# verdict check is ever reached -- which is what the first version of this case measured.
+VERDICT = GOOD.replace("3. [ ] **Register the dataset**", "3. [x] **Register the dataset**")
+gate_ok = art / "leakage-audit.json"
+gate_ok.write_text(json.dumps({"status": "PASS", "refusedCount": 0}), encoding="utf-8")
+pv = D / "verdict.md"; pv.write_text(VERDICT, encoding="utf-8")
+rc, out = run("report.py", "--plan", pv, "--task", "4", "--state", "x", "--artifact", gate_ok)
+fails += not case("a PASS verdict records normally", "OK", rc, out, "RECORDED")
+
+pv.write_text(VERDICT, encoding="utf-8")
+gate_ok.write_text(json.dumps({"status": "REFUSED", "refusedCount": 3}), encoding="utf-8")
+rc, out = run("report.py", "--plan", pv, "--task", "4", "--state", "x", "--artifact", gate_ok)
+fails += not case("a REFUSED verdict blocks [x]", "REFUSED", rc, out, "records its own refusal")
+
+pv.write_text(VERDICT, encoding="utf-8")
+gate_ok.write_text(json.dumps({"refusedCount": 0}), encoding="utf-8")
+rc, out = run("report.py", "--plan", pv, "--task", "4", "--state", "x", "--artifact", gate_ok)
+fails += not case("a missing verdict field is refused, not assumed to pass",
+                  "REFUSED", rc, out, "does not contain it")
+
+pv.write_text(VERDICT, encoding="utf-8")
+gate_ok.write_text("not json at all", encoding="utf-8")
+rc, out = run("report.py", "--plan", pv, "--task", "4", "--state", "x", "--artifact", gate_ok)
+fails += not case("an unreadable artefact is not a pass", "REFUSED", rc, out, "could not be read")
 
 print(f"\n{'all passed' if not fails else str(fails) + ' failed'}")
 sys.exit(1 if fails else 0)

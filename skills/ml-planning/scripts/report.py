@@ -106,6 +106,7 @@ def validate(state: str, spec: dict, a, stage: str) -> list[str]:
                     "outright: a run marked five tasks complete and passed, because nothing "
                     "compared the claim to the disk."
                 )
+            check_verdict(found, spec, stage)
 
     elif state == ">":
         if spec.get("mode") != "pipeline":
@@ -144,6 +145,55 @@ def validate(state: str, spec: dict, a, stage: str) -> list[str]:
 
 
 # ---------------------------------------------------------------- writing
+
+
+def check_verdict(path: Path, spec: dict, stage: str) -> None:
+    """Read the artefact's own verdict, and refuse `[x]` when the gate said no.
+
+    The existence check that came first asked whether the file was there and never what it
+    said. That left the largest hole in the power: a stage whose gate REFUSED could still be
+    recorded complete. It was verified by setting a real run's `leakage-audit.json` to
+    `status: REFUSED` with three refused features -- report.py answered
+    `RECORDED task 4 -> [x] (stage 4, ALWAYS)` without comment. The same held for the quality
+    gate, which is the constraint this entire power is organised around.
+
+    So on every run so far, a gate held because the agent chose to honour it. One did choose
+    correctly, marking the refused gate `[!]` with a reason and a live blocks list. Goodwill
+    that happens to be sound is still goodwill, and this is the difference between a refusal
+    and advice.
+
+    The field to read is declared per stage in stages.toml, because these artefacts do not
+    share a schema: one carries `status: "REFUSED"`, another `registrationAllowed: false`.
+    Guessing across them would mean either missing a refusal or inventing one.
+    """
+    v = spec.get("verdict")
+    if not isinstance(v, dict):
+        return
+    field, refused = v.get("field"), v.get("refused")
+    if not field:
+        return
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise Refusal(
+            f"stage {stage} declares its verdict lives in `{field}` of its artefact, and "
+            f"{path} could not be read as JSON ({exc}). An artefact whose verdict cannot be "
+            "read cannot be treated as a pass."
+        ) from exc
+    if not isinstance(doc, dict) or field not in doc:
+        raise Refusal(
+            f"stage {stage} declares its verdict lives in `{field}`, and {path.name} does "
+            f"not contain it. Either the gate did not write this artefact or it is a "
+            "different document; both mean the stage cannot be recorded complete on it."
+        )
+    if doc[field] == refused:
+        raise Refusal(
+            f"the artefact for stage {stage} records its own refusal: `{field}` is "
+            f"{doc[field]!r}. The gate ran and said no, so the stage is not complete.\n"
+            f"  Report it as [!] instead, with `refused:` pointing at {path.name} and a "
+            "`blocks:` list naming what the refusal still stops. That is what the state is "
+            "for, and it keeps the refusal visible instead of closing over it."
+        )
 
 
 def rewrite(text: str, num: int, state: str, fields: list[str], lint_mod) -> str:
