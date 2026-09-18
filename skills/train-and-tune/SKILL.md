@@ -129,6 +129,24 @@ toward one of the two answers. Both failures are now refusals: an undeclared `me
 
 Do not infer the choice from the request. "Tune it" names the stage, not the method.
 
+#### And if it is `amt-search`, the strategy is a second choice
+
+The four are not interchangeable, and two of them will not run at all in the wrong place:
+
+| `strategy` | Choose it for | Constraint |
+|---|---|---|
+| `Bayesian` | learning from prior runs | sequential by nature, so parallelism does not scale |
+| `Random` | maximum parallelism | none; runs are independent |
+| `Hyperband` | large jobs, early stopping of weak ones | **iterative algorithms only** — record `iterativeAlgorithm: true` |
+| `Grid` | reproducibility, an exhaustive sweep | **categorical parameters only**, and `maxJobs` *equals* the number of combinations |
+
+Spell them as the API does. `strategyChosenBy: user` is required for the same reason
+`methodChosenBy` is. The two constraints are refusals because they are API facts rather than
+preferences: Grid over a continuous range and Hyperband on a non-iterative algorithm are
+rejected by the service, not merely inefficient. Per-region availability of each strategy was
+**not** verified against the China baseline — the rule requires that the user chose, and claims
+nothing about what is offered.
+
 ### Declare the candidates before running them
 
 Write the search space — or the explicit candidate list — into the contract first. Two
@@ -173,6 +191,9 @@ spec:
     candidates: [<declared before running>]     # fixed-candidates
     searchSpace: {<ranges>}                     # amt-search
     maxJobs: <int>                              # amt-search
+    strategy: Bayesian | Random | Hyperband | Grid   # amt-search, API spelling
+    strategyChosenBy: user
+    iterativeAlgorithm: true                    # Hyperband only
     budget: <count | wallClock | cost>
     selectOn: validation
     winnerFixedBeforeTestAccess: true

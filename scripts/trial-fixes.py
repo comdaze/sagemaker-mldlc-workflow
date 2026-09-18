@@ -197,7 +197,10 @@ COMMON = {"budget": "20 jobs", "selectOn": "validation",
 FIXED = {**COMMON, "method": "fixed-candidates", "methodChosenBy": "user",
          "candidates": [{"eta": 0.1}, {"eta": 0.3}], "candidatesRun": 2}
 AMT = {**COMMON, "method": "amt-search", "methodChosenBy": "user",
-       "searchSpace": {"eta": [0.01, 0.3]}, "maxJobs": 20, "candidatesRun": 20}
+       "searchSpace": {"eta": [0.01, 0.3]}, "maxJobs": 20, "candidatesRun": 20,
+       "strategy": "Random", "strategyChosenBy": "user"}
+GRID_SPACE = {"eta": {"type": "categorical", "values": [0.01, 0.1, 0.3]},
+              "depth": {"type": "categorical", "values": [3, 6]}}
 
 
 def tuning(doc, tag):
@@ -223,6 +226,30 @@ case("an amt search past its maxJobs is refused",
 rc, out = tuning({k: v for k, v in AMT.items() if k != "searchSpace"}, "nospace")
 case("amt-search with no declared searchSpace is refused",
      rc != 0 and "searchSpace" in out, out)
+
+print("\n=== 6. and the AMT strategy is a choice one level down ===")
+# Two of the four carry constraints that are API facts rather than preferences, so they are
+# refusals: Grid accepts only categorical parameters and its job count equals the number of
+# combinations; Hyperband works only with iterative algorithms.
+rc, out = tuning({k: v for k, v in AMT.items() if k != "strategyChosenBy"}, "nostrat")
+case("a strategy nobody chose is refused", rc != 0 and "strategyChosenBy" in out, out)
+rc, out = tuning({**AMT, "strategy": "Sensible"}, "badstrat")
+case("a strategy outside the four is refused", rc != 0 and "declare one of" in out, out)
+rc, out = tuning({**AMT, "strategy": "Hyperband"}, "hyper")
+case("Hyperband without iterativeAlgorithm is refused",
+     rc != 0 and "iterativeAlgorithm" in out, out)
+rc, out = tuning({**AMT, "strategy": "Hyperband", "iterativeAlgorithm": True}, "hyperok")
+case("Hyperband declaring an iterative algorithm passes", rc == 0, out)
+rc, out = tuning({**AMT, "strategy": "Grid", "maxJobs": 6, "candidatesRun": 6}, "gridcont")
+case("Grid over a continuous range is refused",
+     rc != 0 and "not declared categorical" in out, out)
+rc, out = tuning({**AMT, "strategy": "Grid", "searchSpace": GRID_SPACE,
+                  "maxJobs": 4, "candidatesRun": 4}, "gridcount")
+case("Grid whose maxJobs is not the combination count is refused",
+     rc != 0 and "distinct categorical combinations" in out, out)
+rc, out = tuning({**AMT, "strategy": "Grid", "searchSpace": GRID_SPACE,
+                  "maxJobs": 6, "candidatesRun": 6}, "gridok")
+case("Grid with 3x2 categoricals and maxJobs 6 passes", rc == 0, out)
 
 print(f"\n{'all passed' if not fails else f'{fails} failed'}")
 sys.exit(1 if fails else 0)

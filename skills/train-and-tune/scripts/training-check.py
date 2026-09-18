@@ -230,6 +230,98 @@ def check_training(t: dict, r: Report) -> None:
         )
 
 
+def check_amt_strategy(t: dict, r: Report) -> None:
+    """AMT's four strategies are a choice too, and two of them carry hard constraints.
+
+    Collapsing them into one `amt-search` option was a taxonomy call I made rather than
+    measured, which is the same defect one level down: the tool deciding something the user
+    should. They are not interchangeable, and the differences are documented rather than
+    matters of taste:
+
+      Bayesian   informed by prior runs, and "because of its sequential nature, Bayesian
+                 optimization cannot massively scale"
+      Random     "able to run the largest number of parallel jobs" -- runs are independent
+      Hyperband  multi-fidelity with its own early stopping; "can only be used with iterative
+                 algorithms ... can't be used with non-iterative algorithms"
+      Grid       reproducible and exhaustive; "only categorical parameters are supported", and
+                 MaxNumberOfTrainingJobs "should equal the total number of distinct categorical
+                 combinations possible"
+
+    The two constraints are checked because they are API facts: a Grid search over a continuous
+    range, or Hyperband on a non-iterative algorithm, does not work rather than working badly.
+    Per-region availability of each strategy was NOT verified for this power's China baseline --
+    so nothing here claims a strategy is available, only that the user chose it.
+    """
+    STRATEGIES = {"Bayesian", "Random", "Hyperband", "Grid"}
+    s = t.get("strategy")
+    if s not in STRATEGIES:
+        r.fail(
+            "tuning",
+            f"strategy is {s!r}; declare one of {sorted(STRATEGIES)} exactly as the API spells "
+            "them. The four are not interchangeable -- Bayesian cannot scale parallelism, "
+            "Random can, Hyperband needs an iterative algorithm, Grid is exhaustive over "
+            "categoricals -- so which one runs changes both the cost and what the search can "
+            "reach.",
+        )
+        return
+    if t.get("strategyChosenBy") != "user":
+        r.fail(
+            "tuning",
+            f"strategy is {s} and strategyChosenBy is not 'user'. Naming the method was made "
+            "the user's decision for a reason, and picking among the four strategies inside it "
+            "is the same decision one level down.",
+        )
+
+    space = t.get("searchSpace") or {}
+
+    if s == "Grid":
+        # AWS: only categorical parameters are supported for grid search.
+        noncat = [k for k, v in space.items()
+                  if not (isinstance(v, dict) and v.get("type") == "categorical"
+                          and isinstance(v.get("values"), list) and v["values"])]
+        if noncat:
+            r.fail(
+                "tuning",
+                f"strategy is Grid and {sorted(noncat)} are not declared categorical. Only "
+                "categorical parameters are supported by grid search, so declare each as "
+                '{"type": "categorical", "values": [...]}. A continuous range under Grid does '
+                "not search badly; it is rejected by the service.",
+            )
+        else:
+            total = 1
+            for v in space.values():
+                total *= len(v["values"])
+            mx = t.get("maxJobs")
+            if isinstance(mx, int) and mx != total:
+                r.fail(
+                    "tuning",
+                    f"strategy is Grid with {total} distinct categorical combinations and "
+                    f"maxJobs is {mx}. Grid is exhaustive, so the job count is not a budget to "
+                    "choose -- it equals the number of combinations. Either the space or the "
+                    "cap is wrong.",
+                )
+
+    if s == "Hyperband" and t.get("iterativeAlgorithm") is not True:
+        r.fail(
+            "tuning",
+            "strategy is Hyperband and iterativeAlgorithm is not recorded as true. Hyperband "
+            "evaluates the objective after each epoch, so it works only with algorithms that "
+            "run in iterations -- XGBoost and Random Cut Forest do, and a non-iterative one "
+            "cannot use it at all. Record the claim explicitly; it is not inferable from a "
+            "search space.",
+        )
+
+    if s == "Bayesian":
+        par = t.get("maxParallelJobs")
+        if isinstance(par, int) and par > 10:
+            r.note(
+                f"Bayesian with maxParallelJobs={par}: each run is informed by the ones before "
+                "it, so high parallelism spends jobs that cannot learn from each other. Random "
+                "scales further if parallelism is the point. Accounting, not a refusal -- the "
+                "documented limit is that it does not scale well, not that it fails."
+            )
+
+
 def check_tuning(t: dict, r: Report) -> None:
     """Stage 8: validation only, candidates declared, winner fixed before test."""
     method = t.get("method")
@@ -272,6 +364,7 @@ def check_tuning(t: dict, r: Report) -> None:
                 "method is amt-search and no maxJobs is recorded. An unbounded search has "
                 "no declared stopping point, and cost is the reason the user was asked.",
             )
+        check_amt_strategy(t, r)
         ran = t.get("candidatesRun")
         mx = t.get("maxJobs")
         if isinstance(ran, int) and isinstance(mx, int) and ran > mx:
