@@ -57,6 +57,7 @@ BLOCKED_BY_RE = re.compile(r"blocked-by:\s*(?P<nums>\d+(?:\s*,\s*\d+)*)")
 PRESET_RE = re.compile(r"^PRESET:\s*(?P<val>.+?)\s*$")
 LAST_DONE_RE = re.compile(r"^LAST_DONE:\s*(?P<val>.+?)\s*$")
 APPROVED_RE = re.compile(r"^APPROVED:\s*(?P<val>.+?)\s*$")
+COMPUTE_RE = re.compile(r"^COMPUTE:\s*(?P<val>.+?)\s*$")
 PARTITION_RE = re.compile(r"^PARTITION:\s*(?P<val>.+?)\s*$")
 LAST_DONE_VALUE_RE = re.compile(r"^(?P<num>\d+)\s*@\s*(?P<ts>\S+)$")
 
@@ -168,6 +169,10 @@ def parse(lines: list[str]) -> tuple[dict[str, tuple[int, str]], list[Task]]:
         m = APPROVED_RE.match(line)
         if m:
             header.setdefault("APPROVED", (line_no, m.group("val")))
+            continue
+        m = COMPUTE_RE.match(line)
+        if m:
+            header.setdefault("COMPUTE", (line_no, m.group("val")))
             continue
         m = PRESET_RE.match(line)
         if m:

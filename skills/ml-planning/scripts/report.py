@@ -344,8 +344,9 @@ def rewrite(text: str, num: int, state: str, fields: list[str], lint_mod) -> str
     return "".join(lines)
 
 
-def check_permission(task, tasks, header: dict, stages_doc: dict, state: str) -> None:
-    """Refuse before writing, not after -- two things plan-lint cannot catch on its own.
+def check_permission(task, tasks, header: dict, stages_doc: dict, state: str,
+                     a) -> list[str]:
+    """Refuse before writing, not after -- and return any fields the checks want recorded.
 
     The write-then-relint-then-revert cycle already stops an invalid plan reaching disk. It
     is not enough here, for two reasons that are the same reason twice: it reports a generic
@@ -369,6 +370,7 @@ def check_permission(task, tasks, header: dict, stages_doc: dict, state: str) ->
     """
     spec = stages_doc.get("stages") or {}
     reported = task.stage
+    fields: list[str] = []
 
     for t in tasks:
         if t.marker != "[?]" or t.num >= task.num:
@@ -396,6 +398,36 @@ def check_permission(task, tasks, header: dict, stages_doc: dict, state: str) ->
             "Pipeline. The rule requiring approval had existed all along, as prose."
         )
 
+    # Money is a separate authorisation from the plan, because approving "process the data" is
+    # not approving a bill. A run created a real Pipeline and started an ml.m5.large job with a
+    # 60-minute ceiling, all of it its own choice, and the only thing that had been approved was
+    # a plan saying processing runs as a ProcessingStep.
+    if (spec.get(reported, {}).get("billable")
+            and state in ("x", ">", "-")):
+        compute = (header.get("COMPUTE") or (0, ""))[1].strip()
+        if not compute or compute.lower() in ("none", "no", "pending"):
+            raise Refusal(
+                f"stage {reported} spends money and the plan carries no authorised COMPUTE "
+                f"line, so it may not be recorded as [{state}]. Put the instance type, the "
+                "count, the Spot decision and a runtime ceiling to the user with what they "
+                "cost, then record their answer:\n"
+                "  COMPUTE: <type> x<count>, spot=<bool>, maxRuntimeMin=<int>, "
+                "authorisedBy=user @ <ISO 8601>\n"
+                "  One line covers the run -- this is not asked per step. What it may not be "
+                "is written on your own authority, and an endpoint is the sharpest case "
+                "because it bills until somebody deletes it."
+            )
+        if not a.compute:
+            raise Refusal(
+                f"stage {reported} spends money, so record what it actually ran on: pass "
+                "--compute \"instanceType=…,instanceCount=…,useSpot=…\". The plan's COMPUTE "
+                f"line authorises a profile ({compute}); this records what was spent against "
+                "it, so the two can be compared by someone who was not watching."
+            )
+        fields.append(f"compute: {a.compute}")
+
+    return fields
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Record one step's outcome in PLAN.md.")
@@ -409,6 +441,11 @@ def main() -> int:
     ap.add_argument("--execution"), ap.add_argument("--refused")
     ap.add_argument("--blocks"), ap.add_argument("--instead-of", dest="instead_of")
     ap.add_argument("--blocked-by", dest="blocked_by"), ap.add_argument("--asked")
+    ap.add_argument(
+        "--compute",
+        help="for a billable stage: what it actually ran on, e.g. "
+             "\"instanceType=ml.m5.large,instanceCount=1,useSpot=false\"",
+    )
     ap.add_argument(
         "--supplied",
         help="for a hard-hold stage reported [x]: the values that came from the user, written "
@@ -439,8 +476,8 @@ def main() -> int:
             raise Refusal(f"task {a.task} names stage {stage}, which stages.toml does not "
                           "declare")
 
-        check_permission(task, tasks, header, stages_doc, a.state)
-        fields = validate(a.state, spec, a, stage)
+        extra = check_permission(task, tasks, header, stages_doc, a.state, a)
+        fields = validate(a.state, spec, a, stage) + extra
         gate_ran = run_gate(spec, stage, a.artifact or [], a.artifacts, plan) \
             if a.state == "x" else None
         updated = rewrite(original, a.task, a.state, fields, lint_mod)

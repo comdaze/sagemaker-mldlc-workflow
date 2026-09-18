@@ -50,6 +50,18 @@ and so held exactly as well as prose does. **A stage whose `stages.toml` entry s
 `holds = "hard"` cannot be worked around at all** — not even by `[~]`, which passes every
 other blocker — because what it waits on is something only the user can supply or authorise.
 
+5. **Money is a second authorisation, and approving the plan is not it.** A stage marked
+   `billable` in `stages.toml` launches a job or stands up an endpoint. Put the instance type,
+   the count, the Spot decision and a runtime ceiling to the user with what they cost, and
+   record one line — `COMPUTE: ml.m5.large x1, spot=false, maxRuntimeMin=60, authorisedBy=user
+   @ <ISO 8601>`. **One line covers the whole run; it is deliberately not asked per step.**
+   Until it exists `next.py` dispatches `authorise-compute` instead of the work, and
+   `report.py` refuses `[x]`, `[>]` and `[-]` on a billable stage. Each such report also carries
+   `--compute` recording what it actually ran on, so the authorisation and the spend can be
+   compared by someone who was not watching. A run reached stage 5, created a real Pipeline and
+   started an `ml.m5.large` job with a 60-minute ceiling; approving a plan that says "processing
+   runs as a ProcessingStep" is not approving that.
+
 Skipping 1 or 4 is what this list prevents: a plan that never recorded its partition, or a
 run that decided for itself that it had permission.
 

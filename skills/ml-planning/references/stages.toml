@@ -111,6 +111,16 @@ produces = "leakage-audit.json"
 # So the gate holding on any given run was the agent choosing to honour it.
 verdict = { field = "status", refused = "REFUSED" }
 
+# billable = true marks a stage that SPENDS MONEY -- it launches a job or stands up an endpoint.
+# Nothing marked it before, and nothing checked it: a run reached stage 5, created a real Pipeline
+# in cn-northwest-1, started an ml.m5.large Processing job with a 60-minute ceiling, and the
+# instance type was its own choice. The plan authorised "processing runs as a ProcessingStep"; it
+# did not authorise that instance, that ceiling, or the creation of the resource.
+#
+# The rule these drive is deliberately NOT a signature per step -- that is the blunt instrument
+# this power warns about. The plan carries one `COMPUTE:` line the user authorises once, and every
+# billable stage is checked against it. Stage 14 is the sharpest case: an endpoint bills until
+# somebody deletes it, where a job stops on its own.
 [stages.5]
 name = "Data processing"
 owner = "data-pipeline"
@@ -119,6 +129,7 @@ requires = [4]
 mode = "pipeline"
 produces = "processing-report.json"
 gate = { script = "data-pipeline/scripts/contract-check.py", needs = ["dataset-manifest.json", "processing-report.json"] }
+billable = true
 
 # ---------------------------------------------------------------- phase 3: modelling
 
@@ -130,6 +141,7 @@ requires = [5]
 mode = "pipeline"
 produces = "baseline-report.json"
 gate = { script = "train-and-tune/scripts/training-check.py", needs = ["baseline-report.json"] }
+billable = true
 
 [stages.7]
 name = "Training"
@@ -139,6 +151,7 @@ requires = [6]
 mode = "pipeline"
 produces = "training-report.json"
 gate = { script = "train-and-tune/scripts/training-check.py", needs = ["baseline-report.json", "training-report.json"] }
+billable = true
 
 [stages.8]
 name = "Tuning"
@@ -148,6 +161,7 @@ requires = [7]
 mode = "pipeline"
 produces = "tuning-report.json"
 gate = { script = "train-and-tune/scripts/training-check.py", needs = ["baseline-report.json", "training-report.json", "tuning-report.json"] }
+billable = true
 
 # ---------------------------------------------------------------- phase 4: quality
 
@@ -158,6 +172,7 @@ execution = "ALWAYS"
 requires = [7]
 mode = "pipeline"
 produces = "evaluation-report.json"
+billable = true
 
 [stages.10]
 name = "Quality gate"
@@ -166,6 +181,7 @@ execution = "ALWAYS"
 requires = [9]
 mode = "pipeline"
 produces = "quality-gate-report.json"
+billable = true
 # The most consequential one in the power, and it was the same story: a report that says
 # `registrationAllowed: false` could be recorded as [x] because nothing read the field. A
 # validation run did honour it, choosing [!] with a refusal reason and a live blocks list --
@@ -197,6 +213,7 @@ execution = "DELIVERABLE"
 requires = [10]
 mode = "pipeline"
 produces = "batch-predictions.csv"
+billable = true
 
 [stages.14]
 name = "Real-time inference"
@@ -204,6 +221,7 @@ owner = "release-and-serve"
 execution = "DELIVERABLE"
 requires = [11]
 mode = "inline"
+billable = true
 
 # ---------------------------------------------------------------- phase 6: operation
 

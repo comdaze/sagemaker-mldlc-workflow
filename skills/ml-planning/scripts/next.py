@@ -214,6 +214,53 @@ def build_fingerprint() -> str:
     return h.hexdigest()[:12]
 
 
+def compute_gate(header: dict, stages_doc: dict, stage: str | None) -> dict | None:
+    """No billable stage is dispatched until the plan carries an authorised compute profile.
+
+    A run reached stage 5, created a real Pipeline, and started an `ml.m5.large` Processing job
+    with a 60-minute ceiling. The plan said processing runs as a ProcessingStep; it did not say
+    which instance, how many, for how long, or that a cloud resource should be created at all.
+    Nothing objected, because `check_compute` lived only in training-check and stage 5's gate
+    reads data identity.
+
+    `APPROVED:` was too coarse to catch it. Approving a plan that says "process the data" is not
+    approving a bill, and the difference between writing a local file and launching a job is the
+    one this power's own guidance says to scale a demand against.
+
+    So: one line, authorised once, checked at every billable stage.
+
+        COMPUTE: ml.m5.large x1, spot=false, maxRuntimeMin=60, authorisedBy=user @ <ISO>
+
+    Deliberately not a signature per step. Asking each time is the blunt instrument that gets
+    worked around, and this way the user makes one decision they can actually reason about --
+    a ceiling for the run rather than a series of individual instances.
+    """
+    if stage is None:
+        return None
+    spec = (stages_doc.get("stages") or {}).get(stage) or {}
+    if not spec.get("billable"):
+        return None
+    val = (header.get("COMPUTE") or (0, ""))[1].strip()
+    if val and val.lower() not in ("none", "no", "pending"):
+        return None
+    return {
+        "action": "authorise-compute",
+        "stage": stage,
+        "why": (
+            f"stage {stage} ({spec.get('name')}) spends money -- it launches a job or stands up "
+            "an endpoint -- and the plan carries no authorised compute profile. Approving the "
+            "plan is not approving a bill."
+        ),
+        "do": (
+            "put the instance type, the count, the Spot decision and a runtime ceiling to the "
+            "user, with what they cost, and record their answer as one header line: "
+            "COMPUTE: <type> x<count>, spot=<bool>, maxRuntimeMin=<int>, authorisedBy=user "
+            "@ <ISO 8601>. It covers the whole run; every billable stage is then checked "
+            "against it. Do not write that line on your own authority."
+        ),
+    }
+
+
 def choose(tasks, stages_doc, wanted: set[str], external: set[str], led: dict) -> dict:
     """Pick the one thing to do next, or refuse and say what is in the way."""
     lint_mod = _load_sibling("plan-lint.py")
@@ -323,8 +370,9 @@ def choose(tasks, stages_doc, wanted: set[str], external: set[str], led: dict) -
 
 
 def render(d: dict, n: int) -> str:
-    if d["action"] in ("complete", "present-plan"):
-        head = "COMPLETE" if d["action"] == "complete" else f"DIRECTIVE {n}  present-plan"
+    if d["action"] in ("complete", "present-plan", "authorise-compute"):
+        head = ("COMPLETE" if d["action"] == "complete"
+                else f"DIRECTIVE {n}  {d['action']}")
         return (f"{head}\n  build: {build_fingerprint()}  ({HERE})\n"
                 f"  why: {d['why']}\n" + (f"  do:  {d['do']}" if d.get("do") else ""))
     if d["action"] == "repair-plan":
@@ -442,6 +490,13 @@ def main() -> int:
             )
 
         d = choose(tasks, stages_doc, wanted, external, led)
+        # A billable stage is not dispatched until its cost is authorised. Checked here rather
+        # than inside choose(), because the answer depends on the plan header and the point is to
+        # stop the spend BEFORE it happens rather than to report it afterwards.
+        if d.get("action") in ("execute", "finish"):
+            cg = compute_gate(header, stages_doc, d.get("stage"))
+            if cg is not None:
+                d = cg
         n = led["directives"] + (0 if d["action"] == "complete" else 1)
 
         if not args.no_record and d["action"] != "complete":

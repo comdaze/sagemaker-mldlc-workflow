@@ -189,6 +189,7 @@ print("\n=== a stage whose gate is a separate program must run it ===")
 # attempts at this case broke `baselines` and `strongestBaseline`, which that artefact also
 # carries as aliases and the checker ignores, so the gate passed and proved nothing.
 GATED = GOOD.replace("PRESET: data-prep-only", "PRESET: batch-serving")
+GATED = GATED.replace("LAST_DONE:", "COMPUTE: ml.m5.large x1, spot=false, maxRuntimeMin=60, authorisedBy=user @ 2026-09-18T21:40:00+08:00\nLAST_DONE:")
 for n, s in ((4, "Leakage"), (5, "Processing")):
     GATED = GATED.replace(f"{n}. [ ] **", f"{n}. [x] **")
 GATED = GATED.replace("3. [ ] **Register the dataset**", "3. [x] **Register the dataset**")
@@ -213,12 +214,14 @@ pg = D / "gated.md"
 
 pg.write_text(GATED, encoding="utf-8")
 base.write_text(json.dumps(good_base), encoding="utf-8")
-rc, out = run("report.py", "--plan", pg, "--task", "6", "--state", "x", "--artifact", base)
+rc, out = run("report.py", "--plan", pg, "--task", "6", "--state", "x", "--artifact", base,
+           "--compute", "instanceType=ml.m5.large,instanceCount=1,useSpot=false")
 fails += not case("the gate runs and its name is recorded", "OK", rc, out, "gate passed")
 
 pg.write_text(GATED, encoding="utf-8")
 base.write_text(json.dumps({**good_base, "strongest": "not-computed"}), encoding="utf-8")
-rc, out = run("report.py", "--plan", pg, "--task", "6", "--state", "x", "--artifact", base)
+rc, out = run("report.py", "--plan", pg, "--task", "6", "--state", "x", "--artifact", base,
+           "--compute", "instanceType=ml.m5.large,instanceCount=1,useSpot=false")
 fails += not case("the checker's own refusal reaches the caller", "REFUSED", rc, out,
                   "not among the computed set")
 
@@ -228,7 +231,8 @@ fails += not case("the checker's own refusal reaches the caller", "REFUSED", rc,
 pg.write_text(GATED.replace("6. [ ] **T6**", "6. [x] **T6**"), encoding="utf-8")
 train.write_text(json.dumps({"status": "Completed"}), encoding="utf-8")
 base.unlink(missing_ok=True)
-rc, out = run("report.py", "--plan", pg, "--task", "7", "--state", "x", "--artifact", train)
+rc, out = run("report.py", "--plan", pg, "--task", "7", "--state", "x", "--artifact", train,
+           "--compute", "instanceType=ml.m5.large,instanceCount=1,useSpot=false")
 fails += not case("a gate that cannot run has not passed", "REFUSED", rc, out,
                   "cannot run has not passed")
 train.unlink(missing_ok=True)
@@ -258,6 +262,40 @@ ph3.write_text(before_txt.replace("s3://generic/", "s3://restricted/"), encoding
 rc, out = run("next.py", ph3, "--no-record")
 fails += not case("changing a prefix in the plan text is caught", "REFUSED", rc, out,
                   "some route other than report.py")
+
+print("\n=== a billable stage is not dispatched until its cost is authorised ===")
+BILL = GOOD.replace("3. [ ] **Register the dataset**",
+                    "3. [x] **Register the dataset** supplied: bucket=b, role=r, prefix=p/")
+BILL = BILL.replace("4. [ ] **Leakage guard**", "4. [x] **Leakage guard**")
+BILL = BILL.replace("LAST_DONE: 2 @", "LAST_DONE: 4 @")
+pb = D / "billable.md"
+(D / "PLAN.state.json").unlink(missing_ok=True)
+pb.write_text(BILL, encoding="utf-8")
+rc, out = run("next.py", pb)
+fails += not case("stage 5 spends money, so the directive asks for authorisation",
+                  "OK", rc, out, "authorise-compute")
+no_exec = "DIRECTIVE 1  execute" not in out
+print(f"  {'PASS' if no_exec else 'FAIL'} and it is not dispatched to execute")
+fails += not no_exec
+
+pb.write_text(BILL, encoding="utf-8")
+rc, out = run("report.py", "--plan", pb, "--task", "5", "--state", ">",
+              "--execution", "arn:aws-cn:sagemaker:…:pipeline-execution/abc")
+fails += not case("reporting it directly does not bypass the compute gate",
+                  "REFUSED", rc, out, "no authorised COMPUTE line")
+
+AUTH = BILL.replace("LAST_DONE: 4 @",
+                    "COMPUTE: ml.m5.large x1, spot=false, maxRuntimeMin=60, "
+                    "authorisedBy=user @ 2026-09-18T21:40:00+08:00\nLAST_DONE: 4 @")
+pb.write_text(AUTH, encoding="utf-8")
+(D / "PLAN.state.json").unlink(missing_ok=True)
+rc, out = run("next.py", pb)
+fails += not case("once authorised, the billable stage dispatches", "OK", rc, out, "execute")
+
+pb.write_text(AUTH, encoding="utf-8")
+rc, out = run("report.py", "--plan", pb, "--task", "5", "--state", ">",
+              "--execution", "arn:aws-cn:sagemaker:…:pipeline-execution/abc")
+fails += not case("but what it ran on must still be recorded", "REFUSED", rc, out, "--compute")
 
 print(f"\n{'all passed' if not fails else str(fails) + ' failed'}")
 sys.exit(1 if fails else 0)
