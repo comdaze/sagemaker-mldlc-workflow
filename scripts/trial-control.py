@@ -209,7 +209,8 @@ good_base = {"metric": "mae",
              "strongest": "yesterday",
              "quality": {"metric": "mae", "bound": 138.6, "marginPct": 1.0,
                          "derivedFrom": "yesterday",
-                         "contract": "contracts/quality-gate-contract.json"}}
+                         "contract": "contracts/quality-gate-contract.json",
+                         "marginChosenBy": "user", "metricChosenBy": "user"}}
 pg = D / "gated.md"
 
 pg.write_text(GATED, encoding="utf-8")

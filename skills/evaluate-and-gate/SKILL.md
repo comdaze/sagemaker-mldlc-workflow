@@ -135,7 +135,10 @@ distinction is the point. It reads the bound and the measured score, derives PAS
 REFUSED itself, writes the report, and exits non-zero on REFUSED — so a failing gate stops
 a pipeline step rather than producing a document someone has to read.
 
-It refuses on: **a bound that does not follow from the artefact its own `derivedFrom`
+It refuses on: **a bound or a metric the user did not choose** (`marginChosenBy` and
+`metricChosenBy` must both be `user` — this gate decides whether a model may be registered, and
+enforcing a threshold nobody picked applies an accident with the authority of a refusal), **a
+bound that does not follow from the artefact its own `derivedFrom`
 names**, a contract that cannot be shown to predate the predictions, a model worse
 than any recorded baseline, a metric list shorter than the contract's without recorded
 reasons, a primary metric absent from the evaluation, an evaluation that does not record

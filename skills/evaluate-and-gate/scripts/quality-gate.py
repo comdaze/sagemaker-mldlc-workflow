@@ -199,6 +199,19 @@ def apply_gate(contract: dict, ev: dict, cpath: Path, epath: Path) -> dict:
             "getting it backwards produces a gate that passes what it should refuse."
         )
     lower = contract.get("lowerIsBetter", metric.lower() in LOWER_IS_BETTER)
+    # The declaration point is stage 6, and training-check.py refuses there. This is the
+    # enforcement point, and a gate that applies a bound nobody chose is enforcing an accident.
+    # Both are needed: a contract can reach stage 10 without the baseline report that stage 6
+    # checked, and then nothing would have asked.
+    for field, what in (("marginChosenBy", "the margin over the baseline"),
+                        ("metricChosenBy", "the primary metric")):
+        if contract.get(field) != "user":
+            raise Refusal(
+                f"{field} is not 'user', so {what} was not the user's decision. This gate "
+                "decides whether a model may be registered; applying a bound or a metric that "
+                "nobody chose enforces an accident with the authority of a refusal. Record the "
+                "choice in the contract at stage 6, before the score exists."
+            )
     inclusive = contract.get("boundInclusive", True)
     derivation = check_derivation(contract, cpath, float(bound), metric, lower)
 

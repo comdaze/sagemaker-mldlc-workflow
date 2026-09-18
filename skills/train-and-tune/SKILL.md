@@ -128,6 +128,35 @@ consumes it, one experiment at a time, and every individual run still looks hone
 Validation is what tuning may read. Test is read once, by `evaluate-and-gate`, after the
 winner is fixed.
 
+### The margin and the metric are the user's, and stage 6 is where they are asked
+
+The bound is declared here, **before any score exists**, which is also the only honest moment to
+ask about it:
+
+```yaml
+quality:
+  metric: mae
+  metricChosenBy: user          # what "good" means
+  marginPct: 5
+  marginChosenBy: user          # the ship / do-not-ship line
+  bound: 48.583                 # = strongest baseline x (1 - marginPct/100)
+  derivedFrom: day-ahead price
+  contract: contracts/quality-gate-contract.json
+```
+
+**`marginPct` is the most consequential number in the workflow.** It says how much better than
+the strongest baseline a model must be before it is worth operating — and nothing in the data, the
+algorithm or this script determines it. A run that picks it has decided the gate's outcome in
+advance. Put it to the user with the baseline's own score beside it.
+
+**The metric chooses the model.** MAE, RMSE and a daily P95 do not rank the same candidates the
+same way; `evaluate-and-gate`'s `references/metrics-by-task.md` lists several per task precisely
+because none of them is the answer.
+
+Both are refused at this stage and again by `quality-gate.py` at stage 10 — because a contract can
+reach the gate without the baseline report, and a gate enforcing a bound nobody chose applies an
+accident with the authority of a refusal.
+
 ### The algorithm is the user's choice, and naming the alternatives is what makes it one
 
 Record it, who chose it, and **what else was offered**:

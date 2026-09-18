@@ -146,6 +146,40 @@ def check_bound(b: dict, strongest: tuple[str, float] | None, r: Report) -> None
         if field not in q:
             r.fail("bound", f"quality is missing {field!r}.")
 
+    # The two decisions that settle whether a model ever ships, and by what standard. Audited
+    # for after the algorithm: `marginPct` was read in five places and `metric` in forty-eight,
+    # and neither had to be anybody's decision.
+    #
+    # The margin IS the ship/do-not-ship line. Beating the strongest baseline by 1%, by 5% or by
+    # 20% before a model is worth operating is a business judgement -- nothing in the data, the
+    # algorithm or this script determines it, and a run that picks it has decided the outcome of
+    # the gate in advance.
+    #
+    # The metric decides what "good" means, and different metrics select different models: MAE,
+    # RMSE and a daily P95 do not rank the same candidate the same way. `metrics-by-task.md`
+    # offers several per task precisely because none of them is the answer.
+    #
+    # Checked HERE, at stage 6, because that is where the bound is declared -- before any score
+    # exists. Asking afterwards is asking once the answer is known.
+    if q.get("marginChosenBy") != "user":
+        r.fail(
+            "bound",
+            f"marginPct is {q.get('marginPct')!r} and marginChosenBy is not 'user'. This margin "
+            "is the line between shipping and not shipping: it says how much better than the "
+            "strongest baseline a model must be before it is worth operating. Nothing derives "
+            "it. Put it to the user with the baseline's own score beside it, and record their "
+            "answer -- while the model's score still does not exist.",
+        )
+    if q.get("metricChosenBy") != "user":
+        r.fail(
+            "bound",
+            f"metric is {q.get('metric')!r} and metricChosenBy is not 'user'. The primary metric "
+            "decides what 'good' means, and MAE, RMSE and a daily P95 do not rank the same "
+            "candidates the same way -- so choosing it chooses the model. "
+            "`references/metrics-by-task.md` lists several per task because none of them is the "
+            "answer; name the ones offered and record which the user picked.",
+        )
+
     if strongest is None or "bound" not in q:
         return
 

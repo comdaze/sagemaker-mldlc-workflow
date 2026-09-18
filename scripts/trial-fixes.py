@@ -130,7 +130,8 @@ def contract(bound, **kw):
     c = {"metric": "mae", "bound": bound, "lowerIsBetter": True,
          "declaredAt": "2026-09-16T10:00:00+08:00",
          "derivedFrom": {"artifact": str(br), "baseline": "day-ahead price",
-                         "marginPct": 5}}
+                         "marginPct": 5},
+         "marginChosenBy": "user", "metricChosenBy": "user"}
     c.update(kw)
     return c
 
@@ -186,7 +187,8 @@ BASE_R = {"metric": "mae",
           "computed": [{"name": "mean", "score": 180.0}, {"name": "yest", "score": 140.0}],
           "strongest": "yest",
           "quality": {"metric": "mae", "bound": 138.6, "marginPct": 1.0,
-                      "derivedFrom": "yest", "contract": "contracts/q.json"}}
+                      "derivedFrom": "yest", "contract": "contracts/q.json",
+                      "marginChosenBy": "user", "metricChosenBy": "user"}}
 TRAIN_R = {"image": "123.dkr.ecr.cn-north-1.amazonaws.com.cn/xgboost:1.7",
            "imageDigest": f"sha256:{H}", "inputDigests": {"train": f"sha256:{H}"},
            "channels": ["train", "validation"], "modelArtefact": "s3://b/model.tar.gz",
@@ -299,6 +301,32 @@ case("alternatives listing only the choice itself is refused",
      rc != 0 and "menu with one item" in out, out)
 rc, out = training({**TRAIN_R, "runtimeMode": "magic"}, "algo-mode")
 case("an unknown runtimeMode is refused", rc != 0 and "runtimeMode" in out, out)
+
+print("\n=== 9. the ship/do-not-ship line and the definition of good are the user's ===")
+Q = BASE_R["quality"]
+rc, out = training(TRAIN_R, "sig-ok")
+case("a bound whose margin and metric the user chose passes", rc == 0, out)
+
+
+def baseline_missing(field, tag):
+    b = {**BASE_R, "quality": {k: v for k, v in Q.items() if k != field}}
+    bp = D / f"sb-{tag}.json"; bp.write_text(json.dumps(b), encoding="utf-8")
+    tp = D / f"st-{tag}.json"; tp.write_text(json.dumps(TRAIN_R), encoding="utf-8")
+    return run(ROOT / "skills/train-and-tune/scripts/training-check.py", bp, tp)
+
+
+rc, out = baseline_missing("marginChosenBy", "nomargin")
+case("a margin nobody chose is refused at the stage it is declared",
+     rc != 0 and "marginChosenBy" in out, out)
+rc, out = baseline_missing("metricChosenBy", "nometric")
+case("a primary metric nobody chose is refused", rc != 0 and "metricChosenBy" in out, out)
+
+# The gate enforces the bound, so it must refuse an unsigned contract too -- a contract can
+# reach stage 10 without the baseline report that stage 6 checked.
+c = {k: v for k, v in contract(51.14 * 0.95).items() if k != "marginChosenBy"}
+rc, out, rep = gate(c, "unsigned")
+case("the gate refuses to enforce a bound nobody chose",
+     rc == 2 and "marginChosenBy" in out, out)
 
 print(f"\n{'all passed' if not fails else f'{fails} failed'}")
 sys.exit(1 if fails else 0)
