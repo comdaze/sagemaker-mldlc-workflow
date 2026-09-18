@@ -60,6 +60,28 @@ Do not ask the user for any of these fields. `versionId` **cannot exist before t
 upload** — it is what the upload returns. See `ml-planning`'s rule on never asking for a
 value your own next action produces.
 
+### What is in, what is out, and who decided
+
+The manifest records the dataset's **scope**, not only its identity:
+
+```yaml
+scope:
+  included: 2024 in full, all 366 delivery days
+  excluded:
+    - what: the 2026 CSV
+      reason: the meter was replaced in March and the units changed
+  scopeChosenBy: user
+```
+
+**An empty `excluded: []` is a good answer and a meaningful one.** An absent field is not the same:
+empty asserts nothing was left out, missing asserts nothing at all and reads exactly like an
+exclusion nobody recorded. A run dropped an entire year's CSV and wrote nothing down — leaving data
+out changes what the model can learn and what the evaluation is evidence *about*, so a reader who
+does not know a year is missing reads the scores as though it were there.
+
+`scopeChosenBy: user`, because which period is representative, which sites belong, and whether a
+sensor change makes earlier rows a different measurement are the user's domain knowledge.
+
 ## Stage 5: process the data
 
 ### Assert completeness before trusting anything
@@ -90,6 +112,19 @@ possible eventually contain it.
 The refusal: **refuse to emit processed outputs when any fitted artefact's provenance is
 not the training partition.** Record each one with what it was fitted on. "Unverified"
 is a legal value and a recorded gap; absent is not.
+
+### The split's placement is the user's; its ordering is not
+
+`splitChosenBy: user` is required on the processing report, and a `filteredOutReason` whenever
+`filteredOutCount` is above zero.
+
+**Both halves are enforced and the distinction is the point.** That partitions are ordered and do
+not overlap is a *correctness* rule — a random shuffle on time-ordered data is a leak, and no
+signature makes it acceptable. But *where* the cuts fall, and how long the test window is, is
+domain judgement: enough of a season to be representative against enough history left to train on.
+A test window chosen too short yields an unreliable number that the quality gate then treats as
+authoritative, which corrupts the evidence rather than merely the estimate. Put the partition sizes
+to the user and record their answer.
 
 ### Content-address the outputs
 

@@ -116,6 +116,100 @@ def field_present(m: dict, field: str) -> bool:
     return field in m
 
 
+def check_scope(m: dict, r: Report) -> None:
+    """Which data is in, which is out, and whose decision that was.
+
+    A run excluded an entire year's CSV from its dataset and recorded nothing about it. Excluding
+    data is not a detail of registration: it changes what the model can learn and what the
+    evaluation is evidence about, and a reader who does not know a year is missing will read the
+    scores as though it were there.
+
+    `excluded` is required as a LIST and may be empty, which is the point -- an empty list is a
+    positive assertion that nothing was left out, where an absent field asserts nothing and reads
+    the same as a careful exclusion nobody wrote down. Each entry needs a reason, because "2026
+    excluded" and "2026 excluded, the meter was replaced in March and the units changed" are
+    different claims.
+    """
+    scope = m.get("scope")
+    if not isinstance(scope, dict):
+        r.fail(
+            "scope",
+            "manifest records no scope. Which rows are in and which are out decides what the "
+            "model can learn and what the evaluation is evidence about, so it belongs in the "
+            'identity: scope: {included: <what>, excluded: [...], scopeChosenBy: user}. An '
+            "empty excluded list is a fine answer and a meaningful one.",
+        )
+        return
+
+    if scope.get("included") in NULLISH:
+        r.fail("scope", "scope records no 'included' -- say what the dataset covers, in the "
+                        "terms a reader would use: a date range, a set of sites, a population.")
+
+    excluded = scope.get("excluded")
+    if not isinstance(excluded, list):
+        r.fail(
+            "scope",
+            "scope has no 'excluded' list. Absent is not the same as empty: an empty list says "
+            "nothing was left out, while a missing field says nothing at all and reads exactly "
+            "like an exclusion nobody recorded.",
+        )
+    else:
+        for i, e in enumerate(excluded):
+            if not isinstance(e, dict) or e.get("what") in NULLISH:
+                r.fail("scope", f"excluded[{i}] does not say WHAT was excluded.")
+            elif e.get("reason") in NULLISH:
+                r.fail(
+                    "scope",
+                    f"excluded[{i}] ({e.get('what')!r}) records no reason. A range dropped "
+                    "without one cannot be reviewed, and it is the exclusions rather than the "
+                    "inclusions that a later reader needs explained.",
+                )
+
+    if scope.get("scopeChosenBy") != "user":
+        r.fail(
+            "scope",
+            "scopeChosenBy is not 'user'. Leaving data out is a modelling decision with the "
+            "user's domain knowledge in it -- which period is representative, which sites "
+            "belong, whether a sensor change makes earlier rows a different measurement. A run "
+            "dropped a whole year and nobody was asked.",
+        )
+
+
+def check_split_decision(rep: dict, r: Report) -> None:
+    """The split boundaries and any rows dropped are decisions, not mechanics.
+
+    `check_boundaries` already refuses overlapping or misordered partitions, and `check_counts`
+    already reconciles `filteredOut` against the source. Both are correctness. Neither asks who
+    decided WHERE the cuts fall or WHY rows went missing -- and a test window chosen too short
+    produces an unreliable number that the quality gate then treats as authoritative, which
+    corrupts the evidence rather than merely the estimate.
+    """
+    if rep.get("splitChosenBy") != "user":
+        r.fail(
+            "boundaries",
+            "splitChosenBy is not 'user'. Where the boundaries fall and how long the test window "
+            "is are domain judgement -- enough of a season to be representative, against enough "
+            "history left to train on. Put the partition sizes to the user and record their "
+            "answer. The ORDER is a correctness rule and stays refused regardless; the placement "
+            "is theirs.",
+        )
+
+    # `filteredOutCount` -- the same field check_counts reconciles. My first version of this read
+    # `filteredOut`, which nothing else in this script uses, so the rule would have been silent on
+    # every real report while passing its own fixture. The fixture caught it, which is the whole
+    # argument for writing one per rule rather than one per feature.
+    dropped = rep.get("filteredOutCount")
+    if isinstance(dropped, (int, float)) and dropped > 0:
+        if rep.get("filteredOutReason") in NULLISH:
+            r.fail(
+                "boundaries",
+                f"{dropped} rows were filtered out and no filteredOutReason is recorded. The "
+                "count already has to reconcile; what it does not have to do yet is explain "
+                "itself, and rows that vanish during processing are the ones a reader most "
+                "needs accounted for.",
+            )
+
+
 def check_completeness(rep: dict, r: Report) -> None:
     """Stage 5: the completeness assertion exists, and its verdict is recorded."""
     c = rep.get("completeness")
@@ -290,6 +384,7 @@ def main() -> int:
     manifest = load(args.manifest, r)
     if manifest is not None:
         check_manifest(manifest, r)
+        check_scope(manifest, r)
 
     report = None
     if args.report is not None:
@@ -299,6 +394,7 @@ def main() -> int:
             check_counts(report, manifest, r)
             check_groups(report, r)
             check_boundaries(report, r)
+            check_split_decision(report, r)
             check_fitted(report, r)
             check_outputs(report, r)
 

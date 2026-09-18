@@ -42,6 +42,8 @@ MANIFEST = json.dumps({
     "sampleCount": 34944,
     "readBackVerified": True,
     "completeness": {"asserted": True, "expectedPerDay": 96},
+    "scope": {"included": "the whole source file", "excluded": [],
+              "scopeChosenBy": "user"},
 })
 
 TRUNC = GOOD.replace("PRESET: data-prep-only", "PRESET: full-lifecycle")

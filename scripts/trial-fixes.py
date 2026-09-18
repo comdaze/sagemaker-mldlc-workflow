@@ -328,5 +328,63 @@ rc, out, rep = gate(c, "unsigned")
 case("the gate refuses to enforce a bound nobody chose",
      rc == 2 and "marginChosenBy" in out, out)
 
+print("\n=== 10. what data is in, what is out, and where the cuts fall ===")
+H2 = "ab" * 32
+MAN = {"uri": "s3://b/d.csv", "versionId": "v1", "etag": '"e"',
+       "digest": f"sha256:{H2}", "sampleCount": 34944, "readBackVerified": True,
+       "completeness": {"asserted": True},
+       "scope": {"included": "2024 in full", "excluded": [], "scopeChosenBy": "user"}}
+REP = {"completeness": {"asserted": True, "unit": "delivery day", "expectedPerUnit": 96,
+                        "passed": True},
+       "partitions": {"train": {"sampleCount": 30000, "from": "2024-01-01", "to": "2024-10-31"},
+                      "test": {"sampleCount": 4944, "from": "2024-11-01", "to": "2024-12-31"}},
+       "filteredOutCount": 0, "fittedArtefacts": [],
+       "outputs": [{"name": "train", "uri": "s3://b/train.csv",
+                    "digest": "sha256:" + "ab" * 32}],
+       "splitChosenBy": "user"}
+CC = ROOT / "skills/data-pipeline/scripts/contract-check.py"
+
+
+def contracts(man, rep, tag):
+    mp = D / f"cm-{tag}.json"; mp.write_text(json.dumps(man), encoding="utf-8")
+    if rep is None:
+        return run(CC, mp)
+    rp = D / f"cr-{tag}.json"; rp.write_text(json.dumps(rep), encoding="utf-8")
+    return run(CC, mp, rp)
+
+
+rc, out = contracts(MAN, REP, "ok")
+case("a manifest and report naming scope and split pass", rc == 0, out)
+rc, out = contracts({k: v for k, v in MAN.items() if k != "scope"}, None, "noscope")
+case("a manifest with no scope is refused", rc != 0 and "no scope" in out, out)
+m = {**MAN, "scope": {"included": "2024", "scopeChosenBy": "user"}}
+rc, out = contracts(m, None, "noexcl")
+case("an absent excluded list is refused; empty is not the same as missing",
+     rc != 0 and "not the same as empty" in out, out)
+m = {**MAN, "scope": {"included": "2024", "excluded": [{"what": "2026 CSV"}],
+                      "scopeChosenBy": "user"}}
+rc, out = contracts(m, None, "noreason")
+case("an exclusion with no reason is refused", rc != 0 and "records no reason" in out, out)
+m = {**MAN, "scope": {**MAN["scope"], "scopeChosenBy": "agent"}}
+rc, out = contracts(m, None, "notuser")
+case("a scope the user did not choose is refused",
+     rc != 0 and "scopeChosenBy" in out, out)
+rc, out = contracts(MAN, {k: v for k, v in REP.items() if k != "splitChosenBy"}, "nosplit")
+case("boundaries nobody placed are refused", rc != 0 and "splitChosenBy" in out, out)
+rc, out = contracts(MAN, {**REP, "filteredOutCount": 120}, "nofilt")
+case("rows filtered out with no reason are refused",
+     rc != 0 and "filteredOutReason" in out, out)
+rc, out = contracts(MAN, {**REP, "filteredOutCount": 120,
+                          "filteredOutReason": "target missing",
+                          # The counts must still reconcile: 120 dropped means 120 fewer in the
+                          # partitions. check_counts caught the first version of this fixture,
+                          # where they did not add up.
+                          "partitions": {"train": {"sampleCount": 29880,
+                                                   "from": "2024-01-01", "to": "2024-10-31"},
+                                         "test": {"sampleCount": 4944,
+                                                  "from": "2024-11-01", "to": "2024-12-31"}}},
+                   "filt")
+case("filtered rows with a reason pass, counts still reconciling", rc == 0, out)
+
 print(f"\n{'all passed' if not fails else f'{fails} failed'}")
 sys.exit(1 if fails else 0)
