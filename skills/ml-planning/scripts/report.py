@@ -65,7 +65,16 @@ def now() -> str:
 
 def validate(state: str, spec: dict, a, stage: str) -> list[str]:
     """Return the field text to append, refusing what the stage's declaration forbids."""
-    execution = spec.get("execution", "CONDITIONAL")
+    execution = spec.get("execution")
+    if execution is None:
+        # Defaulting here used to hand back "CONDITIONAL", which is the most permissive class
+        # -- so a stage whose declaration was incomplete became skippable with a reason. That
+        # is choosing on the author's behalf, in the dangerous direction, and silently.
+        raise Refusal(
+            f"stage {stage} declares no `execution` class in stages.toml, so there is no rule "
+            "to apply to this report. An undeclared stage must not fall back to the most "
+            "permissive class; declare ALWAYS, DELIVERABLE or CONDITIONAL."
+        )
     fields: list[str] = []
 
     if state == "S":

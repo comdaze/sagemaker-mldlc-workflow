@@ -167,6 +167,25 @@ def check_stage_catalogue() -> None:
         if name:
             warn(f"stages.toml names owner {name!r}, which is not a skill in skills/")
 
+    # Every stage must declare the fields the rules read. Omitting one used to be silent:
+    # report.py defaulted a missing `execution` to CONDITIONAL, the most permissive class, so
+    # an incomplete declaration quietly became a skippable stage. plan-lint indexed the same
+    # field directly and would have crashed instead. Neither is an answer, so the declaration
+    # is checked here where it is written.
+    CLASSES = {"ALWAYS", "DELIVERABLE", "CONDITIONAL"}
+    MODES = {"inline", "pipeline"}
+    for sid, s in stages.items():
+        if s.get("execution") not in CLASSES:
+            fail(f"stage {sid} declares execution {s.get('execution')!r}; expected one of "
+                 f"{sorted(CLASSES)}. An undeclared class has no rule and must not fall back "
+                 "to the most permissive one.")
+        if s.get("mode") not in MODES:
+            fail(f"stage {sid} declares mode {s.get('mode')!r}; expected one of "
+                 f"{sorted(MODES)}. `[>]` is legal only on a pipeline-mode stage, so an "
+                 "undeclared mode makes that rule unenforceable.")
+        if not s.get("name") or not s.get("owner"):
+            fail(f"stage {sid} is missing a name or an owner.")
+
     # Every stage a preset names must exist. A preset MAY exclude an ALWAYS stage --
     # `data-prep-only` legitimately stops before modelling. ALWAYS constrains what may
     # be skipped once a preset includes it, which is plan-lint's job, not this one.

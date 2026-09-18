@@ -267,6 +267,12 @@ data-prep-only = [1, 2, 3, 4, 5]
 # model, and that run's own report agreed, calling its unregistered output a structural dry
 # run rather than a forecast.
 batch-serving = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+# Added for the same reason as batch-serving, and found by auditing for the defect that turned
+# up in tuning: a legitimate option the tooling could not express. `batch-serving` gave the
+# batch-only scope a name and left the mirror case with none -- train, release, stand up an
+# endpoint, no batch job. With PRESET now required, that user had to declare a preset that did
+# not describe their run. Whether predictions arrive as a file or over HTTP is theirs to decide.
+realtime-serving = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14]
 inference-only = [1, 2, 13, 14]
 
 [presets-satisfied-externally]
