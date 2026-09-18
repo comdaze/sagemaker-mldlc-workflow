@@ -122,5 +122,25 @@ fails += not case("越过前置的 [x] 被拒", "REFUSED", rc, out)
 print(f"  {'✔' if same else '✘'} PLAN.md 未被改动（回滚生效）")
 fails += not same
 
+print("\n=== 硬阻塞：report.py 写入前就拒 ===")
+HELD = GOOD.replace(
+    "3. [ ] **Register the dataset**",
+    '3. [?] **Register the dataset** — asked: 需要已开启版本控制的 S3 URI 与执行角色 ARN')
+ph = D / "held.md"; ph.write_text(HELD, encoding="utf-8")
+ev = art / "leakage-audit.json"; ev.write_text("{}", encoding="utf-8")
+rc, out = run("report.py", "--plan", ph, "--task", "4", "--state", "x", "--artifact", ev)
+fails += not case("stage 3 硬阻塞时下游 [x] 被拒", "REFUSED", rc, out, 'holds = "hard"')
+rc, out = run("report.py", "--plan", ph, "--task", "5", "--state", "S", "--reason", "先不做")
+fails += not case("连 [S] 也被拒（lint 不把它当推进）", "REFUSED", rc, out, 'holds = "hard"')
+rc, out = run("report.py", "--plan", ph, "--task", "3", "--state", "x", "--artifact", ev)
+fails += not case("被阻塞的 task 3 本身仍可上报（解锁的唯一途径）", "OK", rc, out)
+
+print("\n=== 未批准的计划不能记录执行阶段 ===")
+pu2 = D / "unappr2.md"; pu2.write_text(UNAPPROVED, encoding="utf-8")
+rc, out = run("report.py", "--plan", pu2, "--task", "3", "--state", "x", "--artifact", ev)
+fails += not case("绕过 next.py 直接 report 也被拒", "REFUSED", rc, out, "APPROVED")
+rc, out = run("report.py", "--plan", pu2, "--task", "1", "--state", "x")
+fails += not case("规划阶段豁免（它产出的正是待批准的计划）", "OK", rc, out)
+
 print(f"\n{'全部通过' if not fails else str(fails) + ' 项未通过'}")
 sys.exit(1 if fails else 0)

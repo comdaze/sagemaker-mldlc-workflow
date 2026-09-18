@@ -189,6 +189,59 @@ def rewrite(text: str, num: int, state: str, fields: list[str], lint_mod) -> str
     return "".join(lines)
 
 
+def check_permission(task, tasks, header: dict, stages_doc: dict, state: str) -> None:
+    """Refuse before writing, not after -- two things plan-lint cannot catch on its own.
+
+    The write-then-relint-then-revert cycle already stops an invalid plan reaching disk. It
+    is not enough here, for two reasons that are the same reason twice: it reports a generic
+    "that would fail the checks" where the actual answer is "the user has not agreed to
+    this", and there are two shapes it misses entirely.
+
+    FIRST, A HARD HOLD. A run put one task at `[?]` asking for a bucket and an execution
+    role, then reported eight downstream tasks and delivered a whole implementation. Every
+    one named the blocker, which was exactly what the rules asked for, so nothing objected.
+    `stages.toml` now marks such a stage `holds = "hard"`, and while its task is `[?]` no
+    downstream task may move at all -- including to `[S]`, which plan-lint does not treat as
+    progress and which would otherwise let a run dispose of blocked work unilaterally.
+    Reporting the held task ITSELF stays legal: that is how the block clears once the user
+    answers.
+
+    SECOND, AN UNAPPROVED PLAN. `next.py` will not dispatch execution work without an
+    `APPROVED:` line, but nothing stopped an agent skipping the dispatcher and calling this
+    directly -- and this is the only sanctioned writer, so that route has to be closed here
+    or the gate is decorative. Planning stages are exempt: they produce the plan there is to
+    approve.
+    """
+    spec = stages_doc.get("stages") or {}
+    reported = task.stage
+
+    for t in tasks:
+        if t.marker != "[?]" or t.num >= task.num:
+            continue
+        if spec.get(t.stage or "", {}).get("holds") != "hard":
+            continue
+        raise Refusal(
+            f"task {t.num} (stage {t.stage}) is [?] and that stage declares "
+            f'holds = "hard", so task {task.num} may not move to [{state}]. What it waits '
+            "on is something only the user can supply or authorise, so doing the "
+            "downstream work -- or deciding to skip it -- is acting on permission you do "
+            f"not have.\n  To clear this: get the answer, then report task {t.num} itself. "
+            "That is the one report this allows while the hold stands."
+        )
+
+    approved = (header.get("APPROVED") or (0, "none"))[1].strip().lower()
+    planning = {sid for sid, s in spec.items() if s.get("owner") == "ml-planning"}
+    if approved in ("", "none", "no", "pending") and reported not in planning:
+        raise Refusal(
+            f"the plan has no APPROVED line, so stage {reported} may not be recorded as "
+            f"[{state}]. Present the numbered plan, ask the user to approve it, and record "
+            'what they said: APPROVED: "<their words>" @ <ISO 8601>. Do not write that line '
+            "on your own authority.\n  A run wrote its plan and in the same turn delivered "
+            "contracts, feature code, a trained model, an evaluation and a compiled "
+            "Pipeline. The rule requiring approval had existed all along, as prose."
+        )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Record one step's outcome in PLAN.md.")
     ap.add_argument("--task", type=int, required=True)
@@ -226,6 +279,7 @@ def main() -> int:
             raise Refusal(f"task {a.task} names stage {stage}, which stages.toml does not "
                           "declare")
 
+        check_permission(task, tasks, header, stages_doc, a.state)
         fields = validate(a.state, spec, a, stage)
         updated = rewrite(original, a.task, a.state, fields, lint_mod)
         plan.write_text(updated, encoding="utf-8")
