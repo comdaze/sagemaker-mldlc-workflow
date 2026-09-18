@@ -346,6 +346,48 @@ and remains untested.
 
 
 
+### A hypothesis worth recording because it was refuted
+
+The activation transcript ends a skill's body mid-word with `… (truncated)`, cut at
+character 9,995 of 26,777 — 37% of `ml-planning` shown. That looks exactly like a
+10,000-character delivery cap, and it would have been the best available explanation for
+every bookkeeping failure in rounds 9 and 10, because the state table, the skip classes and
+the linter invocation all sit beyond it. It would also have meant the 500-line cap this
+design is built around was the wrong parameter, and that five of eight skills were more than
+a third undelivered.
+
+**Two measurements and one test say no.**
+
+The prediction failed first. If truncation drove the round-9-to-round-10 regression, the file
+should have been inside the cap at round 9. It was over at *every* version in git history —
+21,701 characters at the earliest, 31,014 at the largest. Both rounds saw the same fraction,
+so truncation cannot explain a difference between them.
+
+A discriminating measurement narrowed it further. At round 10's version the sixteen-row stage
+table sat at offset 8,026–8,129, **inside** the window, while the state table sat at 10,736,
+outside. So the run that lost stages 14, 15 and 16 had the list of them in front of it.
+
+Then the direct test settled it. A freshly activated agent, told to read no files, was asked
+what `[>]` means and what the three execution classes govern. It answered all six specific
+rules correctly — `execution:` naming the run, legal only on a `pipeline`-mode stage, not
+terminal, ALWAYS not skippable even by the user, DELIVERABLE needing `waived-by: user`, and
+skipping *all* deliverables being refused. Those sit at offsets 12,161 to 13,382, and the
+last exists **only** in `SKILL.md` and not in `stages.toml`, so it could not have come from
+the data file. The truncation is in the transcript display; the body reaches the agent whole.
+
+**The refutation is worth more than the hypothesis would have been.** Had the cap been real,
+the remedy would have been to deliver the text better. It is not real, which means every
+bookkeeping failure in round 10 happened with the governing text **present and available**.
+An agent that has the rule and does not apply it is the exact case this power was built
+around, and it is why the response to those failures was declarative metadata and scripted
+refusals rather than clearer prose. Text was never the lever; this is the direct measurement
+of that, and it removes a confound from round 11 rather than adding one.
+
+One thing was not established: whether the agent honoured the instruction to read no files.
+The balance of evidence is that it did — the answers track the body's wording closely,
+including a rule absent from every other file — but compliance was not independently
+verified.
+
 ### Three faults a validation run found in the checks themselves
 
 **The leakage screen refused good features, and the cause was circular.** The
