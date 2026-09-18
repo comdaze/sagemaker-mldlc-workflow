@@ -231,12 +231,21 @@ transposes a stage grid from each stage's own `scopes:` tag and validates it wit
 a drift guard; at four presets and sixteen stages that machinery costs more than
 it returns.
 
-| Preset | Stages |
-|---|---|
-| `full-lifecycle` | 1–16 |
-| `retrain-existing` | 3, 5, 7, 9, 10, 11, 12 |
-| `inference-only` | 13 or 14 |
-| `data-prep-only` | 3, 4, 5 |
+| Preset | Stages | Why it exists |
+|---|---|---|
+| `full-lifecycle` | 1–16 | nothing exists yet |
+| `retrain-existing` | 1–7, 9–12 | new data or new code against an existing contract |
+| `batch-serving` | 1–13 | added when a real run needed this scope and could not name it |
+| `realtime-serving` | 1–12, 14 | added by audit: `batch-serving`'s mirror had no name |
+| `inference-only` | 1, 2, 13, 14 | an approved model needs serving; 3–11 satisfied by the run that registered it |
+| `data-prep-only` | 1–5 | data work ahead of any modelling |
+
+Two of the six were added after the fact, and for the same reason: **a legitimate scope the
+vocabulary could not express.** A run needing batch-only delivery declared its scope in prose
+instead, which left `PRESET` empty and silently disabled three checks that read it. The audit
+that followed found the mirror case — endpoint, no batch — equally unnameable. Both are now
+named, because with `PRESET` required a user whose scope has no name is forced to misdescribe
+their own run.
 
 ## Skills
 
@@ -287,6 +296,9 @@ that only lists intentions is the half nobody can check later.
 | Refusal over prose, everywhere | 111 checking refusals plus 30 computed ones, all independent of which model is driving | five scripts to maintain, and each new rule needs a fixture or the build fails |
 | `next.py` / `report.py` | the agent no longer decides whether work remains | a plan edited by hand stops earning directives until reconciled |
 | Keeping `kiro-power-sagemaker-tabular-mlops` | a regression comparison with a complete end-to-end record | two powers to keep in step, and `monitor-and-retrain` is no longer byte-identical to its source |
+| Consulting each stage's gate from `report.py` | `[x]` now means the gate said yes, not that a file exists | five stages declare a `gate` script and two a `verdict` field; a gate that cannot run blocks the report |
+| `APPROVED:` before any execution directive | the plan-approval rule stopped being prose | an agent can write the line itself, so it is attributable rather than proven |
+| Naming the cost decisions after the user | the tool stopped deciding while looking like it enforced | four more required fields, and `useSpot: false` must be written rather than assumed |
 | China partition as the verified baseline | every capability claim carries a verdict someone measured | content reads as more regional than it is, and a reader outside that partition pays attention tax |
 
 ### Control inversion: the failure that better instructions could not fix
@@ -433,6 +445,52 @@ report agreed with that before the preset did.
 One cost was paid and is worth recording. Round 10's 73 files were never archived and are gone.
 The risk was flagged before round 11 began and the run overwrote them, so round 10 survives only
 as the measurements quoted in this document.
+
+### The defect worth naming: a rule that decides while looking like it enforces
+
+A user objected that a run tuned with a fixed candidate list without offering the alternative.
+The reason nothing objected was worse than a missing question: `check_tuning` read
+`declared = t.get("candidates")` and refused when it was absent. An AMT search declares *ranges*,
+not a list — so the search method failed structurally, and **the only shape that could satisfy
+the checker was the one the run picked**. The tool was not silent about the choice; it was
+steering it, from behind something that looked like enforcement.
+
+That gave a signature to audit for: *a rule whose required fields admit only one of several
+legitimate options.* The fix in that first instance was `method` naming one of two shapes with
+`methodChosenBy: user` beside it, and — one level down, because collapsing AMT's four strategies
+into a single option was the same call again — `strategy` from the four the API names with
+`strategyChosenBy: user`. Two of those four carry constraints that are API facts rather than
+taste: Grid accepts only categorical parameters and its job count *equals* the number of
+combinations, and Hyperband works only with iterative algorithms. Searching for the same
+signature elsewhere found three more instances.
+
+**No preset could express "endpoint, no batch".** `batch-serving` had been added for the mirror
+case and left this one unnameable — and with `PRESET` now required, that user must misdescribe
+their run. `realtime-serving` exists for the same reason its twin does.
+
+**An undeclared `execution` class defaulted to the most permissive one.** `report.py` read
+`spec.get("execution", "CONDITIONAL")`, so an incomplete declaration silently became a
+skippable stage — choosing for the author, in the dangerous direction. It refuses now, and
+`validate.py` checks the declaration where it is written.
+
+**The compute decision had no home at all.** `ml.` appeared in no skill body, Spot appeared
+nowhere in the repository, and no checker read an instance field. Silence about Spot is not
+neutrality: absent a declaration the job runs on-demand, so the expensive option is chosen by
+omission and no decision is visible. `useSpot` is now an explicit boolean, and `false` is a fine
+answer — a recorded one.
+
+Checked and deliberately left alone, because they are correctness rules rather than preferences:
+`leakage-guard` prescribing a chronological split for time-ordered data and a grouped split where
+groups exist is the *fix* for a leak; `release-and-serve`'s gates reading evidence instead of a
+status field is the same shape; `monitor-and-retrain` already declares three retraining triggers
+in the contract rather than judging ad hoc. No hardcoded split ratio exists anywhere.
+
+**The signature is required only where the cost multiplies.** Recording an instance type is
+demanded everywhere; `computeChosenBy: user` only for `amt-search`, where the choice runs
+`maxJobs` times over. Demanding a signature per job is the blunt instrument this power's own
+guidance warns about, and blunt instruments get worked around.
+
+
 
 ### Three faults a validation run found in the checks themselves
 

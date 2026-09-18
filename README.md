@@ -26,7 +26,7 @@ flowchart TB
     subgraph PLAN["ml-planning"]
         S1["1 Frame the problem<br/>target, granularity, and the prediction time"]
         S2["2 Environment readiness<br/>caller ARN decides the partition<br/>installed SDK version is a gate, not a note"]
-        PRESET{"Scope preset<br/>full-lifecycle · retrain-existing<br/>inference-only · data-prep-only"}
+        PRESET{"Scope preset · six named<br/>full-lifecycle · retrain-existing · batch-serving<br/>realtime-serving · inference-only · data-prep-only"}
         PMD[("PLAN.md<br/>PARTITION + SDK + PRESET + LAST_DONE<br/>nine per-task states, checked by plan-lint.py<br/>next.py dispatches · report.py is the only writer")]
         S1 --> S2 --> PRESET --> PMD
     end
@@ -148,8 +148,27 @@ own constraints rather than presenting them as equally binding:
 | Class | What it means | Examples |
 |---|---|---|
 | **Refusal** | honouring it produces code that declines to proceed, and a test can prove the refusal fires | the quality gate does not register a failing model · a bound that does not follow from its own `derivedFrom` · the leakage screen refuses a correlation above its declared bound · `report.py` refuses `[S]` on an `ALWAYS` stage and `[x]` with no artefact on disk · the SDK version gate stops on a mismatch · publish rejects an empty or `"null"` version id · `plan-lint.py` on `PLAN.md` |
-| **Accounting** | it cannot refuse, but a missing decision becomes visible | `PARTITION` / `SDK` / `PRESET` / `LAST_DONE` in the plan · `features.assumed[].reason` and the measurement beside it · `[S]` tasks carrying `skipped: <why>` · `failOnRefusalSuppressed` in the gate report · off-dispatch reports counted in the ledger · a substitution recorded under "Constraints traded away" |
+| **Accounting** | it cannot refuse, but a missing decision becomes visible | `PARTITION` / `SDK` / `PRESET` / `LAST_DONE` in the plan · `features.assumed[].reason` and the measurement beside it · `[S]` tasks carrying `skipped: <why>` · `failOnRefusalSuppressed` in the gate report · `useSpot` recorded as `false` rather than left absent · off-dispatch reports counted in the ledger · a substitution recorded under "Constraints traded away" |
 | **Advice** | nothing checks it; it holds while someone remembers | "prefer the least runtime mode you can get away with" · the five questions in `monitor-and-retrain` · this README staying in step with the skills |
+
+**Three cost decisions are refusals rather than advice, and that is deliberate.** The tuning
+`method`, the AMT `strategy`, and the compute behind a search all have to carry the user's name:
+`methodChosenBy: user`, `strategyChosenBy: user`, `computeChosenBy: user`. Each was found by
+auditing for one defect — *a rule whose required fields admit only one of several legitimate
+options*, so the tool decides while looking like it enforces. `training-check.py` had demanded a
+`candidates` list, which an AMT search cannot supply, so the only shape that could pass was the
+one a validation run picked without asking. Recording an instance type is required everywhere;
+the signature is required only where the choice multiplies, because demanding one per job is the
+blunt instrument that gets worked around.
+
+**Between refusal and accounting sits `APPROVED:`.** No execution work is dispatched until the
+plan carries `APPROVED: "<the user's words>" @ <ISO>`, and an agent can write that line itself —
+so it is not proof of consent and is not offered as any. What it is: a quoted sentence attributed
+to the user, in the file they are reading, which makes inventing one a visible lie rather than an
+invisible omission. Inside the loop it is a refusal, because nothing else gets issued. The rule
+"present the plan for approval" had been in `ml-planning` as prose since the skill existed, and
+held exactly as well as prose does: a run wrote its plan and, in the same turn, delivered
+contracts, feature code, a trained model, an evaluation and a compiled Pipeline.
 
 **Between refusal and accounting sits one mechanism that is neither.** `next.py` cannot stop
 an agent editing `PLAN.md` by hand — no script can — so instead it makes the edit **not
@@ -410,11 +429,11 @@ python3 skills/evaluate-and-gate/scripts/quality-gate.py \
 | Script | Refuses on |
 |---|---|
 | `next.py` | **it decides the order, so the agent does not** — no `PRESET`, a plan `plan-lint.py` rejects, a ledger digest that disagrees with the plan, or unfinished work with nothing dispatchable. A preset stage with no task at all gets a `repair-plan` directive instead of a violation list |
-| `report.py` | **the only sanctioned writer of task state** — `[S]` on an `ALWAYS` stage, `[S]` on a `DELIVERABLE` without `waived-by: user`, `[x]` when the stage's declared artefact is not on disk, `[>]` on a stage whose mode is not `pipeline`. Writes, re-lints, and reverts its own write if the result would fail |
+| `report.py` | **the only sanctioned writer of task state** — `[S]` on an `ALWAYS` stage, `[S]` on a `DELIVERABLE` without `waived-by: user`, `[x]` when the stage's declared artefact is not on disk, `[>]` on a stage whose mode is not `pipeline`, any state change downstream of a stage whose `holds` is `hard`, and any execution-stage report before the plan carries an `APPROVED:` line. It also **consults the gate rather than trusting one ran**: where the artefact records its own verdict it reads the declared field, and where the gate is a separate program it runs it. Writes, re-lints, and reverts its own write if the result would fail |
 | `plan-lint.py` | numbering, one state marker per task, at most one `[-]`, no `[x]` above an unsettled task, `[S]` outside its stage's execution class, `[!]` without `refused:` and a live `blocks:`, `[>]` without `execution:` or on an inline stage, a `PRESET` whose stages the tasks do not cover, `LAST_DONE` disagreeing with the highest `[x]`, and a `Skill:` that does not match the owner its `Stage:` implies |
 | `contract-check.py` | a dataset identity with a hole, a `versionId` that is null or the string `"null"`, an unverified read-back, an absent completeness assertion, partition counts that do not reconcile, a group key in two partitions, overlapping boundaries, a transform fitted outside the training partition, outputs with no digest |
 | `leakage-screen.py` | **it computes on the data, standard library only, so it runs inside a processing job** — a correlation or single-input AUC above the declared bound, or a candidate whose error used directly as the prediction lands within the declared margin of the quality bound. That last one is exemptable, and only that one: naming an input in `assumedKnownAtPredictionTime` **with a reason** turns its direct-prediction refusal into a recorded assumption carrying the measurement, because the bound is derived from the strongest baseline and a baseline is usually a column of the data — so any good column scores near it. A correlation of 0.999 is not exemptable, and the probe is passed an empty exemption map so no contract can disarm the self-check. Exits 2 rather than reporting when it cannot be trusted: no bounds declared, or **its own built-in probe did not fire** |
-| `training-check.py` | no baselines, the weaker baseline named as strongest, a bound not derived from it, an image pinned by tag, a test channel in training or tuning, no model artefact, undeclared candidates, a winner not recorded as fixed before test access |
+| `training-check.py` | no baselines, the weaker baseline named as strongest, a bound not derived from it, an image pinned by tag, a test channel in training or tuning, no model artefact, a winner not recorded as fixed before test access · **and the decisions that cost money**: a tuning `method` the user did not choose, an AMT `strategy` outside the four the API names, `Grid` over a non-categorical range or with a job count that is not its combination count, `Hyperband` without `iterativeAlgorithm: true`, an unrecorded instance type or count, and `useSpot` left absent — because absent means on-demand, so the expensive option would be chosen by omission |
 | `quality-gate.py` | **it computes the verdict rather than checking one** — a bound that does not follow from the artefact its own `derivedFrom` names, a contract that cannot be shown to predate the predictions, a model worse than a recorded baseline, an unexplained missing metric, no independent recomputation, or a hand-written verdict that disagrees. Exits non-zero on `REFUSED`, so a failing gate stops a step instead of producing a document someone has to read |
 
 Every refusal above was verified by breaking a fixture one field at a time. Two were

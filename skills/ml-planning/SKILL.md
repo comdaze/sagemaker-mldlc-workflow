@@ -107,6 +107,8 @@ Ask only if the request does not already make it obvious.
 |---|---|---|
 | `full-lifecycle` | 1–16 | a new algorithm, nothing exists yet |
 | `retrain-existing` | 1–7, 9–12 | the contract exists; new data or new code |
+| `batch-serving` | 1–13 | predictions delivered as a file; no endpoint |
+| `realtime-serving` | 1–12, 14 | predictions delivered over HTTP; no batch job |
 | `inference-only` | 1, 2, 13, 14 | a registered, approved model needs serving |
 | `data-prep-only` | 1–5 | data work ahead of any modelling |
 

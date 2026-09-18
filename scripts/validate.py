@@ -500,6 +500,55 @@ def check_regressions(skip: bool) -> None:
             shutil.rmtree(cache, ignore_errors=True)
 
 
+def check_docs_track_code() -> None:
+    """Every preset and every user-signature field must be named where a reader will find it.
+
+    This power's own taxonomy lists "this README staying in step with the skills" as ADVICE --
+    the tier that holds only while someone remembers. Nobody did: five mechanisms reached the
+    scripts and the skill bodies while both README.md and docs/DESIGN.md still described the
+    version before them, and `realtime-serving` existed in stages.toml alone, so a preset added
+    precisely because a legitimate scope had no name went on having no name a user could see.
+
+    Drift was silent because nothing compared the two. It is not advice any more.
+    """
+    toml_path = ROOT / "skills" / "ml-planning" / "references" / "stages.toml"
+    if not toml_path.is_file():
+        return
+    try:
+        import tomllib
+        doc = tomllib.loads(toml_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001 - a malformed file is reported by the other check
+        warn(f"stages.toml could not be parsed for the docs cross-check ({exc})")
+        return
+
+    body = (ROOT / "skills" / "ml-planning" / "SKILL.md")
+    body_text = body.read_text(encoding="utf-8") if body.is_file() else ""
+    readme = (ROOT / "README.md")
+    readme_text = readme.read_text(encoding="utf-8") if readme.is_file() else ""
+
+    for name in (doc.get("presets") or {}):
+        if name not in body_text:
+            fail(f"preset {name!r} is declared in stages.toml and named nowhere in "
+                 "ml-planning/SKILL.md. A scope a user cannot discover is a scope they will "
+                 "describe in prose instead, which is what silences the checks that read PRESET.")
+        if name not in readme_text:
+            warn(f"preset {name!r} is not named in README.md")
+
+    # A field that carries the user's signature is the whole point of the rule requiring it, so
+    # it has to be findable outside the source.
+    for field in ("methodChosenBy", "strategyChosenBy", "computeChosenBy", "waived-by",
+                  "APPROVED", "useSpot"):
+        where = [n for n, t in (("README.md", readme_text),
+                                ("skills/*/SKILL.md", "".join(
+                                    p.read_text(encoding="utf-8")
+                                    for p in sorted((ROOT / "skills").glob("*/SKILL.md")))))
+                 if field in t]
+        if not where:
+            fail(f"{field} is required by a script and appears in neither README.md nor any "
+                 "SKILL.md. A rule nobody can read is a rule that will be met by accident or "
+                 "not at all.")
+
+
 def check_no_escaping_paths() -> None:
 
     """The checklist forbids referencing paths outside the plugin root."""
@@ -544,6 +593,7 @@ def main() -> int:
     check_no_escaping_paths()
     has_power_md = check_power_md(ROOT / "POWER.md")
     check_stage_catalogue()
+    check_docs_track_code()
     check_regressions(args.no_regressions)
     check_import_cleanliness()
 
