@@ -53,12 +53,6 @@ other blocker — because what it waits on is something only the user can supply
 Skipping 1 or 4 is what this list prevents: a plan that never recorded its partition, or a
 run that decided for itself that it had permission.
 
-## If you were asked to demonstrate this power rather than to build something
-
-A demonstration is not an exemption from this power's own rules: the plan, the gates and the
-refusals all still apply, and a demo that skips them demonstrates nothing.
-`references/asking-and-blocking.md` has the shape of the answer.
-
 ## Step 1: Establish the partition, the SDK, and the target
 
 Three facts gate everything, and two of them are cheap enough that guessing is
@@ -373,6 +367,8 @@ reasoning.
 
 ## Principles
 
+- **A demonstration is not an exemption.** The plan, the gates and the refusals still
+  apply; see `references/asking-and-blocking.md`.
 - **One question at a time**, and only questions that decide a branch.
 - **Never ask for something your own next action would produce** — the rule most often
   broken, and it stalls a plan on a question nobody can answer.
@@ -467,7 +463,7 @@ So classify every constraint and prefer the first kind:
   path the work must travel and give each a test proving it fires.
 - **An accounting requirement.** It cannot refuse, but a missing decision becomes
   visible — `metrics.omitted[].reason`, a declared serving mode, `[S]` carrying a
-  reason, `PARTITION` / `SDK` / `LAST_DONE` in the plan.
+  reason, `PARTITION` / `SDK` / `PRESET` / `APPROVED` / `LAST_DONE` in the plan.
 - **Advice.** Nothing checks it. Say so rather than implying otherwise.
 
 Then close the loop: **record which constraints you could not make enforceable,
