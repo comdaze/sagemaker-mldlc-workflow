@@ -135,52 +135,52 @@ def negatives() -> list[tuple[str, str, str, str]]:
         return src.replace(old, new, 1)
 
     return [
-        ("numbering", "编号跳号",
+        ("numbering", "a gap in the numbering",
          sub("5. [ ] **Data processing**", "6. [ ] **Data processing**"),
          "task 5 renumbered to 6, leaving a gap"),
-        ("marker", "一个 task 两个标记",
+        ("marker", "two state markers on one task",
          sub("3. [ ] **Register", "3. [ ] [x] **Register"),
          "two state markers on one task"),
-        ("header", "缺 PARTITION",
+        ("header", "no PARTITION",
          sub("PARTITION: aws-cn\n", ""),
          "the partition is undeclared"),
-        ("cursor", "LAST_DONE 与最高 [x] 不符",
+        ("cursor", "LAST_DONE disagrees with the highest [x]",
          sub("3. [ ] **Register", "3. [x] **Register"),
          "a task is [x] but LAST_DONE still says 0"),
-        ("ordering", "[x] 压在未结之上",
+        ("ordering", "[x] above an unsettled task",
          sub("5. [ ] **Data processing**", "5. [x] **Data processing**"),
          "the last task is complete while earlier ones are not"),
-        ("skip", "[S] 没有理由",
+        ("skip", "[S] with no reason",
          sub("2. [ ] **Tuning**", "2. [S] **Tuning**", FULL),
          "[S] on a CONDITIONAL stage with no reason"),
-        ("skippability", "[S] 打在 ALWAYS 上",
+        ("skippability", "[S] on an ALWAYS stage",
          sub("4. [ ] **Leakage guard**",
-             "4. [S] **Leakage guard** skipped: 时间不够"),
+             "4. [S] **Leakage guard** skipped: no time"),
          "[S] on a stage declared ALWAYS"),
-        ("refusal", "[!] 缺 refused:",
+        ("refusal", "[!] without refused:",
          sub("4. [ ] **Leakage guard**", "4. [!] **Leakage guard**"),
          "a refusal with no artefact and no blocks list"),
-        ("awaiting", "[?] 缺 asked:",
+        ("awaiting", "[?] without asked:",
          sub("3. [ ] **Register", "3. [?] **Register"),
          "a blocker nobody was told about"),
-        ("substitute", "[~] 缺 instead-of:",
+        ("substitute", "[~] without instead-of:",
          sub("4. [ ] **Leakage guard**", "4. [~] **Leakage guard**"),
          "a substitution that declares neither what nor why"),
-        ("attribution", "Skill 与 Stage 不符",
+        ("attribution", "Skill: does not match the owner Stage: implies",
          sub("Stage: 4 | Skill: leakage-guard", "Stage: 4 | Skill: data-pipeline"),
          "the named skill is not the stage's declared owner"),
-        ("prerequisite", "前置未满足就完成",
+        ("prerequisite", "progress with a prerequisite unmet",
          sub("5. [ ] **Data processing**",
              "5. [-] **Data processing**"),
          "stage 5 started while stage 4 is unsettled"),
-        ("preset", "PRESET 覆盖不全",
+        ("preset", "PRESET names stages no task covers",
          sub("4. [ ] **Leakage guard** _(Stage: 4 | Skill: leakage-guard)_\n", ""),
          "the preset includes stage 4 and no task covers it"),
-        ("preset", "根本没有 PRESET 行",
+        ("preset", "no PRESET line at all",
          sub("PRESET: data-prep-only\n", ""),
-         "no PRESET at all -- round 11 declared its scope in prose and three checks went "
-         "silent"),
-        ("concurrency", "[>] 缺 execution:",
+         "no PRESET at all -- a run that describes its scope in prose instead leaves three "
+         "checks with nothing to compare the tasks against"),
+        ("concurrency", "[>] without execution:",
          sub("5. [ ] **Data processing**", "5. [>] **Data processing**"),
          "[>] without the run it is awaiting"),
     ]
@@ -194,10 +194,10 @@ def main() -> int:
     all_labels = set().union(*inventory.values()) if inventory else set()
     fails = 0
 
-    print(f"plan-lint.py: {len(inventory)} 个检查函数，{len(all_labels)} 个违规标签\n")
+    print(f"plan-lint.py: {len(inventory)} check functions, {len(all_labels)} violation labels\n")
 
-    print("=== 正例：每个 preset 生成的规范计划都必须通过 ===")
-    print("    （这是上一次加规则时从未验过的性质：规则是可满足的）")
+    print("=== positives: a generated plan for every preset must pass ===")
+    print("    (the property nobody checked when the rules were added: they are satisfiable)")
     for preset in sorted(doc["presets"]):
         p = D / f"good-{preset}.md"
         p.write_text(generate(preset, doc), encoding="utf-8")
@@ -205,13 +205,12 @@ def main() -> int:
         ok = rc == 0
         fails += not ok
         n = len(doc["presets"][preset])
-        print(f"  {'✔' if ok else '✘'} {preset:<18} {n:>2} 个 stage   "
-              f"{'通过' if ok else '被拒'}")
+        print(f"  {'PASS' if ok else 'FAIL'} {preset:<18} {n:>2} stages")
         if not ok:
             for line in out.strip().splitlines()[:4]:
                 print(f"        {line.strip()}")
 
-    print("\n=== 反例：每条检查一个，断言打中的是它自己 ===")
+    print("\n=== negatives: one per check, asserting THAT check fires ===")
     covered: set[str] = set()
     for label, name, text, breaks in negatives():
         p = D / f"neg-{label}.md"
@@ -222,13 +221,13 @@ def main() -> int:
         fails += not ok
         covered.add(label)
         extra = sorted(hit - {label})
-        note = f"  （同时触发 {', '.join(extra)}）" if extra else ""
-        print(f"  {'✔' if ok else '✘'} {label:<14} {name:<22}{note}")
+        note = f"  (also fired: {', '.join(extra)})" if extra else ""
+        print(f"  {'PASS' if ok else 'FAIL'} {label:<14} {name:<44}{note}")
         if not ok:
-            print(f"        断言 [{label}]，实际 {sorted(hit) or '无违规'}")
-            print(f"        这个 fixture 破坏的是：{breaks}")
+            print(f"        expected [{label}], got {sorted(hit) or 'no violations'}")
+            print(f"        this fixture breaks: {breaks}")
 
-    print("\n=== --artifacts：产物在盘上而 task 说没做 ===")
+    print("\n=== --artifacts: an artefact exists while its task says otherwise ===")
     art = D / "artifacts"
     art.mkdir()
     (art / "leakage-audit.json").write_text("{}", encoding="utf-8")
@@ -238,22 +237,22 @@ def main() -> int:
     ok = rc != 0 and "workspace" in fired(out)
     fails += not ok
     covered.add("workspace")
-    print(f"  {'✔' if ok else '✘'} workspace      stage 4 的产物在盘上而 task 4 是 [ ]")
+    print(f"  {'PASS' if ok else 'FAIL'} workspace      stage 4 artefact exists, task 4 is [ ]")
     if not ok:
-        print(f"        实际 {sorted(fired(out)) or '无违规'}")
+        print(f"        got {sorted(fired(out)) or 'no violations'}")
 
-    print("\n=== 自审：有检查没有 fixture 吗 ===")
+    print("\n=== self-audit: is any check left uncovered? ===")
     missing = sorted(all_labels - covered)
     if missing:
         fails += len(missing)
         for m in missing:
             who = [k for k, v in inventory.items() if m in v]
-            print(f"  ✘ [{m}] 没有反例覆盖（来自 {', '.join(who)}）")
-        print("    加了检查却不加 fixture，就会退回到「只验过能报错」的状态。")
+            print(f"  FAIL [{m}] has no negative fixture (emitted by {', '.join(who)})")
+        print("    A check added without one returns us to rules verified only to be able to error.")
     else:
-        print(f"  ✔ {len(all_labels)} 个标签全部有反例覆盖")
+        print(f"  PASS all {len(all_labels)} labels have a negative fixture")
 
-    print(f"\n{'全部通过' if not fails else f'{fails} 项未通过'}")
+    print(f"\n{'all passed' if not fails else f'{fails} failed'}")
     return 1 if fails else 0
 
 

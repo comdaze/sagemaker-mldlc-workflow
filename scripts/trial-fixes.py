@@ -21,7 +21,7 @@ fails = 0
 
 def case(label, ok, detail=""):
     global fails
-    print(f"  {'✔' if ok else '✘'} {label}")
+    print(f"  {'PASS' if ok else 'FAIL'} {label}")
     if not ok:
         fails += 1
         if detail:
@@ -59,7 +59,7 @@ with csv.open("w", encoding="utf-8") as f:
 # baseline, so the bound sits just below its own score -- the circularity in one line.
 mae_da = sum(abs(r["day_ahead"] - r["y"]) for r in rows) / n
 bound = round(mae_da * 0.95, 4)
-print(f"day_ahead 直接预测 MAE {mae_da:.4f}；门限 = 它 × 0.95 = {bound}\n")
+print(f"day_ahead as a direct prediction: MAE {mae_da:.4f}; bound = it x 0.95 = {bound}\n")
 
 base = {"target": "y", "candidates": ["leak", "day_ahead", "noise"],
         "bounds": {"maxAbsCorrelation": 0.95, "directPredictionFloor": bound,
@@ -82,42 +82,44 @@ def verdict(res, name):
     return {}
 
 
-print("=== 1. 过度拒绝：合法强预测列 ===")
+print("=== 1. over-refusal: a legitimate strong predictor ===")
 rc, out, res = screen(base, "plain")
 v = verdict(res, "day_ahead")
-case("没有声明假设时，day_ahead 被拒（保留原行为）",
+case("with no declared assumption, day_ahead is refused (unchanged behaviour)",
      v.get("refused") is True, json.dumps(v, ensure_ascii=False))
 
 c2 = dict(base, assumedKnownAtPredictionTime={
-    "day_ahead": "日前市场在交割日前一天收盘，交割时该值已公布"})
+    "day_ahead": "the day-ahead market closes the day before delivery, so this value is published by then"})
 rc, out, res = screen(c2, "assumed")
 v = verdict(res, "day_ahead")
-case("声明了假设后不再被拒，但测量值仍在报告里",
+case("declared as an assumption it is not refused, and the measurement is still reported",
      v.get("refused") is False and v.get("assumed") is True
      and "directPredictionMae" in v.get("measured", {}),
      json.dumps(v, ensure_ascii=False))
 
-print("\n=== 2. 逃逸口不能吞掉整个筛查 ===")
-c3 = dict(base, assumedKnownAtPredictionTime={"leak": "我说它可知"})
+print("\n=== 2. the exemption must not swallow the screen ===")
+c3 = dict(base, assumedKnownAtPredictionTime={"leak": "asserted knowable, with no substance"})
 rc, out, res = screen(c3, "leak-assumed")
 v = verdict(res, "leak")
-case("对 leak 声明假设，相关性那条仍然拒绝",
+case("an assumption on the leak does not stop the correlation refusal",
      v.get("refused") is True and any("correlation" in r for r in v.get("reasons", [])),
      json.dumps(v, ensure_ascii=False))
 
-c4 = dict(base, assumedKnownAtPredictionTime={"__probe__": "试图关掉自证"})
+c4 = dict(base, assumedKnownAtPredictionTime={"__probe__": "an attempt to switch off the self-check"})
 rc, out, res = screen(c4, "probe-assumed")
-# 退出码非零是候选被拒，那是对的；这里要断言的是自证仍然开火。
-case("对 __probe__ 声明假设，关不掉自证",
+# A non-zero exit here means candidates were refused, which is correct; what this case
+# asserts is that the self-check still fired.
+case("an assumption naming __probe__ cannot disarm the self-check",
      "probe fired" in out and "DID NOT FIRE" not in out, out)
 
 c5 = dict(base, assumedKnownAtPredictionTime=["day_ahead"])
 rc, out, res = screen(c5, "list")
-case("假设写成列表（理由丢失）被拒", rc != 0 and "REASON" in out.upper(), out)
+case("an assumption written as a list, losing the reason, is refused", rc != 0 and "REASON" in out.upper(), out)
 
 
 # ---------------------------------------------------------- gate
-# 第九轮的真实数字：最强基线 日前电价 MAE 51.14，5% 余量 → 界 48.583；模型 56.373994。
+# Real numbers from a validation run: strongest baseline (day-ahead price) MAE 51.14, a 5%
+# margin, so the bound is 48.583; the model scored 56.373994.
 BASE_REPORT = {"baselines": {"day-ahead price": {"mae": 51.14},
                              "same period yesterday": {"mae": 94.42},
                              "mean": {"mae": 164.47}}}
@@ -144,38 +146,39 @@ def gate(c, tag, *extra):
     rep = json.loads(op.read_text(encoding="utf-8")) if op.is_file() else None
     return rc, out, rep
 
-print("\n=== 3. 退出码：默认非零，pipeline 里可要求为零但留痕 ===")
+print("\n=== 3. exit code: non-zero by default, suppressible with a trace ===")
 rc, out, rep = gate(contract(51.14 * 0.95), "default")
-case("默认 REFUSED 退出非零（shell 里拒绝才成立）",
+case("REFUSED exits non-zero by default, which is what makes it hold in a shell",
      rc == 1 and rep and rep["registrationAllowed"] is False, out)
 
 rc, out, rep = gate(contract(51.14 * 0.95), "suppressed", "--no-fail-on-refusal")
-case("--no-fail-on-refusal 退出 0，但 registrationAllowed 仍为 false",
+case("--no-fail-on-refusal exits 0 while registrationAllowed stays false",
      rc == 0 and rep["registrationAllowed"] is False, out)
-case("抑制这件事写进了报告，ConditionStep 读得到",
+case("the suppression is in the report, where a ConditionStep will read it",
      rep.get("failOnRefusalSuppressed") is True, json.dumps(rep)[:300])
 
-print("\n=== 4. 界必须能从它命名的产物重算出来 ===")
+print("\n=== 4. the bound must be recomputable from the artefact it names ===")
 rc, out, rep = gate(contract(51.14 * 0.95), "derived")
-case("界与推导一致 → 重算通过并记录",
+case("a bound matching its derivation is recomputed and recorded",
      rep and "recomputed" in (rep.get("boundDerivation") or ""),
      (rep or {}).get("boundDerivation"))
 
-# 看过分数（56.37）后把界改宽到 60，declaredAt 保持不动 —— 正是第十轮自己发现的伪造形状
+# Widen the bound to 60 after seeing the score of 56.37, leaving declaredAt untouched --
+# the forgery shape a validation run caught in itself.
 rc, out, rep = gate(contract(60.0), "forged")
-case("事后改宽界（declaredAt 不动）被拒",
+case("a bound widened after the fact, with declaredAt untouched, is refused",
      rc == 2 and "does not follow from its own declared derivation" in out, out[:400])
 
 c = contract(51.14 * 0.95); c.pop("derivedFrom")
 rc, out, rep = gate(c, "noderiv")
-case("没有 derivedFrom 时不拒绝，但报告说清证据更弱",
+case("absent derivedFrom it does not refuse, but the report says the evidence is weaker",
      rep is not None and "declaredAt` alone" in (rep.get("boundDerivation") or ""),
      (rep or {}).get("boundDerivation"))
 
 c = contract(51.14 * 0.95)
 c["derivedFrom"]["baseline"] = "same period yesterday"
 rc, out, rep = gate(c, "wrongbase")
-case("推导指向另一个基线（算术不成立）被拒", rc == 2, out[:300])
+case("a derivation naming a different baseline, so the arithmetic fails, is refused", rc == 2, out[:300])
 
-print(f"\n{'全部通过' if not fails else f'{fails} 项未通过'}")
+print(f"\n{'all passed' if not fails else f'{fails} failed'}")
 sys.exit(1 if fails else 0)
