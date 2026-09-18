@@ -183,10 +183,20 @@ case("a derivation naming a different baseline, so the arithmetic fails, is refu
 
 print("\n=== 5. the tuning method is the user's choice, and both must be possible ===")
 H = "ab" * 32
+
+# The bound is DERIVED, so the fixture derives it. Written as a literal it was correct and
+# hand-maintained: 140.0 x (1 - 1.0/100) = 138.6, a relationship invisible to a reader and to
+# anyone editing the margin. `check_bound` recomputes it, so a typo there fails as though the
+# CODE were wrong. The same shape has already cost time twice in these suites -- a row count
+# that did not reconcile, and a field emptied that the checker does not read.
+STRONGEST, MARGIN_PCT = 140.0, 1.0
+BOUND = STRONGEST * (1 - MARGIN_PCT / 100)
+
 BASE_R = {"metric": "mae",
-          "computed": [{"name": "mean", "score": 180.0}, {"name": "yest", "score": 140.0}],
+          "computed": [{"name": "mean", "score": 180.0},
+                       {"name": "yest", "score": STRONGEST}],
           "strongest": "yest",
-          "quality": {"metric": "mae", "bound": 138.6, "marginPct": 1.0,
+          "quality": {"metric": "mae", "bound": BOUND, "marginPct": MARGIN_PCT,
                       "derivedFrom": "yest", "contract": "contracts/q.json",
                       "marginChosenBy": "user", "metricChosenBy": "user"}}
 TRAIN_R = {"image": "123.dkr.ecr.cn-north-1.amazonaws.com.cn/xgboost:1.7",
@@ -329,19 +339,35 @@ case("the gate refuses to enforce a bound nobody chose",
      rc == 2 and "marginChosenBy" in out, out)
 
 print("\n=== 10. what data is in, what is out, and where the cuts fall ===")
+# The counts have to reconcile -- check_counts adds the partitions to filteredOutCount and
+# compares the total against the manifest -- so the fixture DERIVES them rather than asserting
+# three numbers that must happen to add up. An earlier version had them not adding up, and the
+# refusal that produced looked like a bug in the new rule rather than arithmetic in the fixture.
 H2 = "ab" * 32
+SAMPLES, TEST_ROWS = 34944, 4944
 MAN = {"uri": "s3://b/d.csv", "versionId": "v1", "etag": '"e"',
-       "digest": f"sha256:{H2}", "sampleCount": 34944, "readBackVerified": True,
+       "digest": f"sha256:{H2}", "sampleCount": SAMPLES, "readBackVerified": True,
        "completeness": {"asserted": True},
        "scope": {"included": "2024 in full", "excluded": [], "scopeChosenBy": "user"}}
-REP = {"completeness": {"asserted": True, "unit": "delivery day", "expectedPerUnit": 96,
-                        "passed": True},
-       "partitions": {"train": {"sampleCount": 30000, "from": "2024-01-01", "to": "2024-10-31"},
-                      "test": {"sampleCount": 4944, "from": "2024-11-01", "to": "2024-12-31"}},
-       "filteredOutCount": 0, "fittedArtefacts": [],
-       "outputs": [{"name": "train", "uri": "s3://b/train.csv",
-                    "digest": "sha256:" + "ab" * 32}],
-       "splitChosenBy": "user"}
+
+
+def report_for(filtered: int = 0, **extra) -> dict:
+    """A processing report whose partitions reconcile with the manifest by construction."""
+    rep = {"completeness": {"asserted": True, "unit": "delivery day", "expectedPerUnit": 96,
+                            "passed": True},
+           "partitions": {"train": {"sampleCount": SAMPLES - TEST_ROWS - filtered,
+                                    "from": "2024-01-01", "to": "2024-10-31"},
+                          "test": {"sampleCount": TEST_ROWS,
+                                   "from": "2024-11-01", "to": "2024-12-31"}},
+           "filteredOutCount": filtered, "fittedArtefacts": [],
+           "outputs": [{"name": "train", "uri": "s3://b/train.csv",
+                        "digest": f"sha256:{H2}"}],
+           "splitChosenBy": "user"}
+    rep.update(extra)
+    return rep
+
+
+REP = report_for()
 CC = ROOT / "skills/data-pipeline/scripts/contract-check.py"
 
 
@@ -374,16 +400,8 @@ case("boundaries nobody placed are refused", rc != 0 and "splitChosenBy" in out,
 rc, out = contracts(MAN, {**REP, "filteredOutCount": 120}, "nofilt")
 case("rows filtered out with no reason are refused",
      rc != 0 and "filteredOutReason" in out, out)
-rc, out = contracts(MAN, {**REP, "filteredOutCount": 120,
-                          "filteredOutReason": "target missing",
-                          # The counts must still reconcile: 120 dropped means 120 fewer in the
-                          # partitions. check_counts caught the first version of this fixture,
-                          # where they did not add up.
-                          "partitions": {"train": {"sampleCount": 29880,
-                                                   "from": "2024-01-01", "to": "2024-10-31"},
-                                         "test": {"sampleCount": 4944,
-                                                  "from": "2024-11-01", "to": "2024-12-31"}}},
-                   "filt")
+rc, out = contracts(MAN, report_for(filtered=120,
+                                   filteredOutReason="target missing"), "filt")
 case("filtered rows with a reason pass, counts still reconciling", rc == 0, out)
 
 print(f"\n{'all passed' if not fails else f'{fails} failed'}")

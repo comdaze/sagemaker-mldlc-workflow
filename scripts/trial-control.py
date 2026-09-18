@@ -205,11 +205,15 @@ base = art / "baseline-report.json"
 train = art / "training-report.json"
 # The bound must be derivable from the strongest baseline, which is check_bound's rule --
 # a report without it is refused for that reason and would have masked what this case tests.
+# The bound is derived, so derive it here too rather than asserting a number that must happen to
+# equal the arithmetic check_bound performs.
+STRONGEST, MARGIN_PCT = 140.0, 1.0
 good_base = {"metric": "mae",
              "computed": [{"name": "mean", "score": 180.0},
-                          {"name": "yesterday", "score": 140.0}],
+                          {"name": "yesterday", "score": STRONGEST}],
              "strongest": "yesterday",
-             "quality": {"metric": "mae", "bound": 138.6, "marginPct": 1.0,
+             "quality": {"metric": "mae", "bound": STRONGEST * (1 - MARGIN_PCT / 100),
+                         "marginPct": MARGIN_PCT,
                          "derivedFrom": "yesterday",
                          "contract": "contracts/quality-gate-contract.json",
                          "marginChosenBy": "user", "metricChosenBy": "user"}}
