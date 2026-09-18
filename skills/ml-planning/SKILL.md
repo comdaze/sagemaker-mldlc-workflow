@@ -470,18 +470,13 @@ So classify every constraint and prefer the first kind:
   reason, `PARTITION` / `SDK` / `PRESET` / `APPROVED` / `LAST_DONE` in the plan.
 - **Advice.** Nothing checks it. Say so rather than implying otherwise.
 
-Then close the loop: **record which constraints you could not make enforceable,
-and what you did instead.** A verification that degraded silently is worse than
-one never claimed.
-
-```markdown
-## Constraints traded away
-
-- `release-and-serve` endpoint-config comparison — serving mode is batch
-  transform, which has no endpoint config. Replaced by comparing the model
-  package ARN, image digest and ModelDataUrl. Weaker: it does not catch a config
-  changed out from under the release.
-```
+Then close the loop: **record which constraints you could not make enforceable, and what you
+did instead**, under a `## Constraints traded away` heading in `PLAN.md` — one bullet per
+constraint, naming the check and what replaced it. A verification that degraded silently is
+worse than one never claimed. A real example: *`release-and-serve` endpoint-config comparison —
+serving mode is batch transform, which has no endpoint config. Replaced by comparing the model
+package ARN, image digest and ModelDataUrl. Weaker: it does not catch a config changed out from
+under the release.*
 
 ## Constraints to surface early
 
