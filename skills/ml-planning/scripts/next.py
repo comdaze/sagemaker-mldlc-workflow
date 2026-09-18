@@ -185,6 +185,25 @@ def approval_gate(header: dict, tasks, stages_doc: dict) -> dict | None:
     }
 
 
+def build_fingerprint() -> str:
+    """A short digest of the control layer this process is actually running.
+
+    Kiro COPIES a power into ~/.kiro/powers/installed at import time, so an edited clone and a
+    running run can be different software with no sign of it anywhere. That is not theoretical:
+    a validation run spent six hours exercising a snapshot taken before half the gates existed,
+    and the only reason it came to light was a ledger field the newer code would have written.
+
+    Nothing in a run could answer "which build am I on". Now the directive says so and the
+    ledger keeps it, so a trial's own artefacts carry the version that produced them.
+    """
+    h = hashlib.sha256()
+    for p in sorted(HERE.glob("*.py")) + [HERE.parent / "references" / "stages.toml"]:
+        if p.is_file():
+            h.update(p.name.encode("utf-8"))
+            h.update(p.read_bytes())
+    return h.hexdigest()[:12]
+
+
 def choose(tasks, stages_doc, wanted: set[str], external: set[str], led: dict) -> dict:
     """Pick the one thing to do next, or refuse and say what is in the way."""
     lint_mod = _load_sibling("plan-lint.py")
@@ -296,12 +315,15 @@ def choose(tasks, stages_doc, wanted: set[str], external: set[str], led: dict) -
 def render(d: dict, n: int) -> str:
     if d["action"] in ("complete", "present-plan"):
         head = "COMPLETE" if d["action"] == "complete" else f"DIRECTIVE {n}  present-plan"
-        return f"{head}\n  why: {d['why']}\n" + (f"  do:  {d['do']}" if d.get("do") else "")
+        return (f"{head}\n  build: {build_fingerprint()}  ({HERE})\n"
+                f"  why: {d['why']}\n" + (f"  do:  {d['do']}" if d.get("do") else ""))
     if d["action"] == "repair-plan":
-        return (f"DIRECTIVE {n}  repair-plan\n  stages missing: {', '.join(d['stages'])}\n"
+        return (f"DIRECTIVE {n}  repair-plan\n  build: {build_fingerprint()}\n"
+                f"  stages missing: {', '.join(d['stages'])}\n"
                 f"  why: {d['why']}\n  do:  {d['do']}")
     head = f"DIRECTIVE {n}  {d['action']}"
-    rows = [("task", d.get("task")), ("stage", d.get("stage")), ("skill", d.get("skill")),
+    rows = [("build", build_fingerprint()),
+            ("task", d.get("task")), ("stage", d.get("stage")), ("skill", d.get("skill")),
             ("execution", d.get("execution")), ("mode", d.get("mode")),
             ("produces", d.get("produces"))]
     body = "\n".join(f"  {k+':':<11}{v}" for k, v in rows if v is not None)
@@ -360,6 +382,7 @@ def main() -> int:
             led = load_ledger(ledger)
             if not args.no_record:
                 led["directives"] += 1
+                led["build"] = build_fingerprint()
                 led["dispatched"] = {"n": led["directives"], "action": "repair-plan",
                                      "task": None, "stages": early}
                 led.setdefault("history", []).append(led["dispatched"])
@@ -386,6 +409,7 @@ def main() -> int:
             led = load_ledger(ledger)
             if not args.no_record:
                 led["directives"] += 1
+                led["build"] = build_fingerprint()
                 led["dispatched"] = {"n": led["directives"], "action": "present-plan",
                                      "task": None}
                 led.setdefault("history", []).append(led["dispatched"])
@@ -413,6 +437,7 @@ def main() -> int:
         if not args.no_record and d["action"] != "complete":
             led["directives"] = n
             led["digest"] = digest
+            led["build"] = build_fingerprint()
             led["dispatched"] = {"n": n, "action": d["action"], "task": d.get("task"),
                                  "stage": d.get("stage")}
             led.setdefault("history", []).append(led["dispatched"])

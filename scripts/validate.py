@@ -500,6 +500,54 @@ def check_regressions(skip: bool) -> None:
             shutil.rmtree(cache, ignore_errors=True)
 
 
+def check_installed_copy_is_current() -> None:
+    """Compare the installed power against this repository, because a run uses the copy.
+
+    Kiro copies a power into ~/.kiro/powers/installed at import time. So an edited clone and a
+    running agent can be different software, and nothing anywhere says so. A validation run
+    exercised a snapshot taken before half of one afternoon's gates existed -- six hours of work
+    it could not have used -- and it surfaced only because the newer code writes a ledger field
+    the older one does not.
+
+    A WARN rather than a FAIL, deliberately. The repository being ahead of an install is the
+    normal state while editing, and a check that fails on the normal state is a check people
+    learn to skip. But it names the files, so "re-import before the next trial" becomes a thing
+    someone can see rather than remember.
+    """
+    name = (ROOT / "plugin.json")
+    try:
+        pid = json.loads(name.read_text(encoding="utf-8")).get("name") or ROOT.name
+    except Exception:  # noqa: BLE001 - the schema check reports a malformed manifest
+        pid = ROOT.name
+    installed = Path.home() / ".kiro" / "powers" / "installed" / pid
+    if not installed.is_dir():
+        return  # never imported on this machine; nothing to compare
+
+    differ, missing = [], []
+    for src in sorted(ROOT.rglob("*")):
+        if not src.is_file() or ".git" in src.parts or "__pycache__" in src.parts:
+            continue
+        rel = src.relative_to(ROOT)
+        if rel.parts[0] in ("scripts", "docs", ".github"):
+            continue  # not shipped into a run's reach
+        dst = installed / rel
+        if not dst.is_file():
+            missing.append(str(rel))
+        elif dst.read_bytes() != src.read_bytes():
+            differ.append(str(rel))
+
+    if not differ and not missing:
+        return
+    n = len(differ) + len(missing)
+    sample = ", ".join((differ + missing)[:3]) + ("…" if n > 3 else "")
+    warnings.append(
+        f"the installed copy at {installed} differs from this repository in {n} file(s) "
+        f"({sample}). A RUN USES THE INSTALLED COPY, so anything changed here is not in effect "
+        "until the power is re-imported -- one trial drew conclusions from a snapshot that "
+        "predated half its gates."
+    )
+
+
 def check_docs_track_code() -> None:
     """Every preset and every user-signature field must be named where a reader will find it.
 
@@ -594,6 +642,7 @@ def main() -> int:
     has_power_md = check_power_md(ROOT / "POWER.md")
     check_stage_catalogue()
     check_docs_track_code()
+    check_installed_copy_is_current()
     check_regressions(args.no_regressions)
     check_import_cleanliness()
 
