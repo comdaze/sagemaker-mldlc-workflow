@@ -223,10 +223,59 @@ def check_training(t: dict, r: Report) -> None:
             "release cannot later prove which bytes it approved.",
         )
 
+    check_compute(t, r, "training")
+
     if t.get("billableSeconds") is None:
         r.note(
             "no billableSeconds recorded -- not a violation, but 'train a bigger one' "
             "should be a decision with a number attached."
+        )
+
+
+def check_compute(d: dict, r: Report, where: str) -> None:
+    """The compute decision is a spending decision, and this power had no place for it.
+
+    Audited for it rather than assuming: `ml.` appears in no skill body, Spot appears nowhere in
+    the repository, and no checker read an instance field. So every job picked an instance type
+    and a count, and nothing recorded which -- a number nobody wrote down cannot be reviewed,
+    and "train a bigger one" cannot be a decision with a number attached if the last number was
+    never kept.
+
+    Spot is the sharper half. Silence about it is not neutrality: absent a declaration the job
+    runs on-demand, so the expensive option was chosen by omission. AWS documents Spot as the
+    cost lever for exactly this workload. It must therefore be an explicit boolean -- `false` is
+    a fine answer and a recorded one, which is the whole difference.
+
+    Deliberately proportionate, following this power's own rule about scaling a demand to the
+    cost of the thing: recording is required everywhere, but the user's signature is required
+    only where the cost multiplies. One training job is a routine call; a search that launches
+    twenty is not.
+    """
+    it = d.get("instanceType")
+    if not it or not str(it).startswith("ml."):
+        r.fail(
+            where,
+            f"instanceType is {it!r}. Record the instance the job actually ran on -- it is the "
+            "largest number in the bill and the one a later reader needs in order to judge "
+            "whether the next run should be bigger, smaller or the same.",
+        )
+    n = d.get("instanceCount")
+    if not isinstance(n, int) or n < 1:
+        r.fail(where, f"instanceCount is {n!r}; record how many instances ran.")
+
+    spot = d.get("useSpot")
+    if not isinstance(spot, bool):
+        r.fail(
+            where,
+            "useSpot is not recorded as true or false. Leaving it out is not neutral: the job "
+            "runs on-demand, so the expensive option gets chosen by omission and nobody sees a "
+            "decision being made. `false` is a perfectly good answer -- it just has to be one.",
+        )
+    elif spot:
+        r.note(
+            f"{where} ran on Spot: cheaper, and interruptible. If a long job was interrupted "
+            "and restarted, the wall-clock and the cost both moved, so compare runs on "
+            "billableSeconds rather than on elapsed time."
         )
 
 
@@ -365,6 +414,18 @@ def check_tuning(t: dict, r: Report) -> None:
                 "no declared stopping point, and cost is the reason the user was asked.",
             )
         check_amt_strategy(t, r)
+        check_compute(t, r, "tuning")
+        # One training job's instance is a routine call. A search multiplies it by maxJobs, which
+        # is where the same decision stops being routine -- so this is the one place the compute
+        # choice needs the user's name on it, for the same reason the method and the strategy do.
+        if t.get("computeChosenBy") != "user":
+            r.fail(
+                "tuning",
+                "computeChosenBy is not 'user'. An AMT search runs its instance choice "
+                f"{t.get('maxJobs')} times over, so the instance type, the count and the "
+                "Spot decision are a budget rather than a configuration detail. Put the "
+                "total to them before spending it.",
+            )
         ran = t.get("candidatesRun")
         mx = t.get("maxJobs")
         if isinstance(ran, int) and isinstance(mx, int) and ran > mx:

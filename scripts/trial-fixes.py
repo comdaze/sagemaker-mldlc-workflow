@@ -190,10 +190,13 @@ BASE_R = {"metric": "mae",
 TRAIN_R = {"image": "123.dkr.ecr.cn-north-1.amazonaws.com.cn/xgboost:1.7",
            "imageDigest": f"sha256:{H}", "inputDigests": {"train": f"sha256:{H}"},
            "channels": ["train", "validation"], "modelArtefact": "s3://b/model.tar.gz",
-           "resolvedHyperparameters": {"eta": 0.1}, "billableSeconds": 134}
+           "resolvedHyperparameters": {"eta": 0.1}, "billableSeconds": 134,
+           "instanceType": "ml.m5.xlarge", "instanceCount": 2, "useSpot": False}
 COMMON = {"budget": "20 jobs", "selectOn": "validation",
           "channels": ["train", "validation"],
-          "winnerFixedBeforeTestAccess": True, "winner": {"eta": 0.1}}
+          "winnerFixedBeforeTestAccess": True, "winner": {"eta": 0.1},
+          "instanceType": "ml.m5.xlarge", "instanceCount": 2, "useSpot": False,
+          "computeChosenBy": "user"}
 FIXED = {**COMMON, "method": "fixed-candidates", "methodChosenBy": "user",
          "candidates": [{"eta": 0.1}, {"eta": 0.3}], "candidatesRun": 2}
 AMT = {**COMMON, "method": "amt-search", "methodChosenBy": "user",
@@ -250,6 +253,31 @@ case("Grid whose maxJobs is not the combination count is refused",
 rc, out = tuning({**AMT, "strategy": "Grid", "searchSpace": GRID_SPACE,
                   "maxJobs": 6, "candidatesRun": 6}, "gridok")
 case("Grid with 3x2 categoricals and maxJobs 6 passes", rc == 0, out)
+
+print("\n=== 7. the compute decision is recorded, and Spot is explicit ===")
+
+
+def training(doc, tag):
+    b = D / f"cb-{tag}.json"; b.write_text(json.dumps(BASE_R), encoding="utf-8")
+    tr = D / f"ct-{tag}.json"; tr.write_text(json.dumps(doc), encoding="utf-8")
+    u = D / f"cu-{tag}.json"; u.write_text(json.dumps(FIXED), encoding="utf-8")
+    return run(ROOT / "skills/train-and-tune/scripts/training-check.py", b, tr, u)
+
+
+rc, out = training(TRAIN_R, "ok")
+case("a record naming instance, count and useSpot passes", rc == 0, out)
+rc, out = training({k: v for k, v in TRAIN_R.items() if k != "instanceType"}, "noinst")
+case("no instanceType is refused", rc != 0 and "instanceType" in out, out)
+rc, out = training({k: v for k, v in TRAIN_R.items() if k != "useSpot"}, "nospot")
+case("useSpot left out is refused, not read as on-demand",
+     rc != 0 and "not neutral" in out, out)
+rc, out = training({**TRAIN_R, "instanceCount": 0}, "zero")
+case("an instanceCount of zero is refused", rc != 0 and "instanceCount" in out, out)
+rc, out = tuning({k: v for k, v in AMT.items() if k != "computeChosenBy"}, "nocompute")
+case("an amt search whose compute nobody signed off is refused",
+     rc != 0 and "computeChosenBy" in out, out)
+rc, out = tuning({k: v for k, v in FIXED.items() if k != "computeChosenBy"}, "fixednosign")
+case("a single fixed run does NOT need that signature", rc == 0, out)
 
 print(f"\n{'all passed' if not fails else f'{fails} failed'}")
 sys.exit(1 if fails else 0)

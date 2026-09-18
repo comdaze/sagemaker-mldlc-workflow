@@ -87,6 +87,22 @@ Three identities, all by digest and none by tag:
 | the model artefact, with its object version | a path can be overwritten |
 | the input, by digest | see above |
 
+### The compute decision has to be written down, and Spot is not a detail
+
+`instanceType`, `instanceCount` and `useSpot` are required in the training and tuning records.
+This power had no place for any of them: `ml.` appeared in no skill body and Spot appeared
+nowhere in the repository, so every job picked an instance and nothing kept which.
+
+**`useSpot` must be an explicit `true` or `false`.** Leaving it out is not neutrality — the job
+runs on-demand, so the expensive option gets chosen by omission and no decision is visible.
+`false` is a good answer; it just has to be one.
+
+**`computeChosenBy: user` is required for `amt-search` only.** One training job's instance is a
+routine call. A search runs that choice `maxJobs` times over, which is where it stops being a
+configuration detail and becomes a budget — so put the total to the user before spending it. The
+asymmetry is deliberate: demanding a signature for every single job is the blunt-instrument
+failure `ml-planning` warns about.
+
 Plus the resolved hyperparameters as they were actually sent, not as they were intended.
 A default that changed between SDK versions is invisible in intent and visible in the
 resolved set.
