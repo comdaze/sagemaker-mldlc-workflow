@@ -128,6 +128,31 @@ consumes it, one experiment at a time, and every individual run still looks hone
 Validation is what tuning may read. Test is read once, by `evaluate-and-gate`, after the
 winner is fixed.
 
+### The algorithm is the user's choice, and naming the alternatives is what makes it one
+
+Record it, who chose it, and **what else was offered**:
+
+```yaml
+algorithm: xgboost
+algorithmChosenBy: user
+algorithmAlternatives: [xgboost, linear-learner, sklearn.HistGradientBoosting]
+runtimeMode: built-in        # built-in | byos | extended | byoc | byom — recorded, not signed
+```
+
+This is the most consequential of the decisions this skill refuses to make for you. The tuning
+method decides what a search costs; the algorithm decides **what the model can express, what the
+serving stack is, and who maintains it afterwards.** A run that picks it silently has settled the
+shape of everything downstream.
+
+`algorithmAlternatives` must name something other than the choice itself, and that requirement
+comes from a defect found in this very power: a checker once required a shape only one method
+could produce, which made the user's agreement to it hollow. **A choice among one option is not a
+choice.** `references/baselines-and-search.md` covers trees, linear models and networks — this
+skill has never claimed one of them is the answer.
+
+`runtimeMode` is accounting rather than a refusal: the five modes differ in what somebody has to
+maintain rather than in whether they work, so it has to be visible without needing a signature.
+
 ### The method is the user's choice, and it is a spending decision
 
 Tuning has two shapes and they differ by orders of magnitude in cost:

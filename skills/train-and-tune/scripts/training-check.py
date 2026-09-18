@@ -223,6 +223,7 @@ def check_training(t: dict, r: Report) -> None:
             "release cannot later prove which bytes it approved.",
         )
 
+    check_algorithm(t, r)
     check_compute(t, r, "training")
 
     if t.get("billableSeconds") is None:
@@ -230,6 +231,73 @@ def check_training(t: dict, r: Report) -> None:
             "no billableSeconds recorded -- not a violation, but 'train a bigger one' "
             "should be a decision with a number attached."
         )
+
+
+def check_algorithm(d: dict, r: Report) -> None:
+    """The algorithm is the user's choice, and recording alternatives is what makes it one.
+
+    Nothing here asked. `training-check.py` read thirty fields and not one was the algorithm,
+    while `references/baselines-and-search.md` documents search spaces for trees, linear models
+    AND networks -- so this power already stated that several families are legitimate, and then
+    let whichever one a run reached for go unrecorded.
+
+    It is the most consequential of the choices audited so far. The tuning method decides what a
+    search costs; the algorithm decides what the model can express, what the serving stack is,
+    and who maintains it afterwards. A run that picks it silently has settled the shape of
+    everything downstream.
+
+    `algorithmAlternatives` is required, and must name something OTHER than the choice, because
+    of what the tuning defect taught: a checker whose required fields admitted only one legitimate
+    shape made "the user chose it" hollow. A choice among one option is not a choice, and
+    recording what was offered is the cheapest way to keep that honest.
+
+    `runtimeMode` is accounting rather than a refusal -- built-in, BYOS, extended, BYOC and BYOM
+    differ in maintenance cost rather than in whether they work, so it must be visible without
+    needing a signature.
+    """
+    algo = d.get("algorithm")
+    if algo in NULLISH:
+        r.fail(
+            "training",
+            "no algorithm recorded. It decides what the model can express, what the serving "
+            "stack is and who maintains it -- so the one thing it must not be is the first "
+            "thing that came to hand. Record it by name, as it was actually used.",
+        )
+        return
+    if d.get("algorithmChosenBy") != "user":
+        r.fail(
+            "training",
+            f"algorithm is {algo!r} and algorithmChosenBy is not 'user'. Put the candidates to "
+            "them with what each implies -- what it can express, what it costs to train, what "
+            "has to be maintained to serve it -- and record their answer. "
+            "`references/baselines-and-search.md` covers trees, linear models and networks, so "
+            "this power has never claimed one of them is the answer.",
+        )
+    alts = d.get("algorithmAlternatives")
+    if not isinstance(alts, list) or not alts:
+        r.fail(
+            "training",
+            "no algorithmAlternatives recorded. A choice presented as the only option is not a "
+            "choice, and this exact defect has already been found once in this power: a checker "
+            "required a shape that only one method could produce, which made the user's "
+            "agreement to it meaningless. Name what else was offered.",
+        )
+    elif not [x for x in alts if str(x).strip().lower() != str(algo).strip().lower()]:
+        r.fail(
+            "training",
+            f"algorithmAlternatives lists only {algo!r} itself. That is a menu with one item; "
+            "record at least one genuine alternative that was put to the user.",
+        )
+
+    mode = d.get("runtimeMode")
+    KNOWN = {"built-in", "byos", "extended", "byoc", "byom"}
+    if mode in NULLISH:
+        r.note(
+            "no runtimeMode recorded -- not a violation, but built-in, BYOS, extended, BYOC and "
+            "BYOM differ in what someone has to maintain, and that is worth stating once."
+        )
+    elif str(mode).strip().lower() not in KNOWN:
+        r.fail("training", f"runtimeMode is {mode!r}; expected one of {sorted(KNOWN)}.")
 
 
 def check_compute(d: dict, r: Report, where: str) -> None:

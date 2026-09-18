@@ -191,7 +191,10 @@ TRAIN_R = {"image": "123.dkr.ecr.cn-north-1.amazonaws.com.cn/xgboost:1.7",
            "imageDigest": f"sha256:{H}", "inputDigests": {"train": f"sha256:{H}"},
            "channels": ["train", "validation"], "modelArtefact": "s3://b/model.tar.gz",
            "resolvedHyperparameters": {"eta": 0.1}, "billableSeconds": 134,
-           "instanceType": "ml.m5.xlarge", "instanceCount": 2, "useSpot": False}
+           "instanceType": "ml.m5.xlarge", "instanceCount": 2, "useSpot": False,
+           "algorithm": "xgboost", "algorithmChosenBy": "user",
+           "algorithmAlternatives": ["xgboost", "linear-learner"],
+           "runtimeMode": "built-in"}
 COMMON = {"budget": "20 jobs", "selectOn": "validation",
           "channels": ["train", "validation"],
           "winnerFixedBeforeTestAccess": True, "winner": {"eta": 0.1},
@@ -278,6 +281,24 @@ case("an amt search whose compute nobody signed off is refused",
      rc != 0 and "computeChosenBy" in out, out)
 rc, out = tuning({k: v for k, v in FIXED.items() if k != "computeChosenBy"}, "fixednosign")
 case("a single fixed run does NOT need that signature", rc == 0, out)
+
+print("\n=== 8. the algorithm is the user's choice, and a menu of one is not a menu ===")
+rc, out = training(TRAIN_R, "algo-ok")
+case("a named algorithm, chosen by the user, with alternatives, passes", rc == 0, out)
+rc, out = training({k: v for k, v in TRAIN_R.items() if k != "algorithm"}, "algo-none")
+case("no algorithm recorded is refused", rc != 0 and "no algorithm" in out, out)
+rc, out = training({k: v for k, v in TRAIN_R.items() if k != "algorithmChosenBy"}, "algo-nosign")
+case("an algorithm nobody chose is refused",
+     rc != 0 and "algorithmChosenBy" in out, out)
+rc, out = training({k: v for k, v in TRAIN_R.items() if k != "algorithmAlternatives"},
+                   "algo-noalts")
+case("a choice with no alternatives recorded is refused",
+     rc != 0 and "not a choice" in out, out)
+rc, out = training({**TRAIN_R, "algorithmAlternatives": ["xgboost"]}, "algo-self")
+case("alternatives listing only the choice itself is refused",
+     rc != 0 and "menu with one item" in out, out)
+rc, out = training({**TRAIN_R, "runtimeMode": "magic"}, "algo-mode")
+case("an unknown runtimeMode is refused", rc != 0 and "runtimeMode" in out, out)
 
 print(f"\n{'all passed' if not fails else f'{fails} failed'}")
 sys.exit(1 if fails else 0)
