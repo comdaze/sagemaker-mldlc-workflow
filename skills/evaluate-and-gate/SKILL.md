@@ -135,10 +135,37 @@ distinction is the point. It reads the bound and the measured score, derives PAS
 REFUSED itself, writes the report, and exits non-zero on REFUSED — so a failing gate stops
 a pipeline step rather than producing a document someone has to read.
 
-It refuses on: a contract that cannot be shown to predate the predictions, a model worse
+It refuses on: **a bound that does not follow from the artefact its own `derivedFrom`
+names**, a contract that cannot be shown to predate the predictions, a model worse
 than any recorded baseline, a metric list shorter than the contract's without recorded
 reasons, a primary metric absent from the evaluation, an evaluation that does not record
 independent recomputation, and a recorded verdict that disagrees with the computed one.
+
+### The bound has to be reproducible, because `declaredAt` is a field its author can rewrite
+
+Declare where the bound came from, not only when:
+
+```json
+"bound": 48.583,
+"derivedFrom": {"artifact": "artifacts/baseline-report.json",
+                "baseline": "day-ahead price", "marginPct": 5}
+```
+
+The gate redoes the arithmetic. A validation run rewrote its contract and left the old
+`declaredAt` in place — which would have forged the very evidence the timestamp exists to
+provide, and nothing in the script could have told. Widening a bound after seeing the score
+now breaks a calculation, and it breaks it whatever the timestamp says. The limit is worth
+knowing: rewriting the baseline report too would defeat this, so the two artefacts together
+are harder to fake than either alone — harder, not impossible.
+
+### Inside a Pipeline, route on the report rather than on a crash
+
+Exiting non-zero is what makes the refusal hold in a shell, so it is the default. But a
+metric missing its bound is a **result**, not a crashed job: a `ConditionStep` should read
+`registrationAllowed` and branch. Pass `--no-fail-on-refusal` for that, and the report
+records `failOnRefusalSuppressed: true` — without the trace the flag would quietly convert a
+refusal into advice. A validation run wrote its own 110-line wrapper to get this behaviour,
+and the wrapper was right.
 
 ## Prove the refusals fire
 

@@ -93,9 +93,9 @@ implements each one differs; the *consequence* does not.
 1. **An input that predicts the target too well on its own.** Whatever measure suits
    the modality, there is a bound, the bound is declared in the contract, and
    crossing it is a hard stop rather than a warning.
-2. **An input whose direct use as the prediction lands near the quality gate.** If
-   one input already nearly clears the bar the model must clear, the model is not the
-   thing being measured.
+2. **An input whose direct use as the prediction lands within the declared margin of the
+   quality gate.** If one input already nearly clears the bar the model must clear, the
+   model is not the thing being measured.
 3. **An input whose availability at prediction time cannot be established, and which
    there is positive reason to believe is late.** Tier 3 of step 2, mechanically.
 
@@ -103,8 +103,20 @@ An input that nearly *is* the target is either the target under another name or
 computed from it. There is no third explanation worth training on, and no naming
 convention will surface it — only the comparison will.
 
-**None of the three may be softened into a review step.** A constraint written as a
-refusal survives into the artefacts; written as a suggestion it holds only while
+**Tier 2 is exemptable, and it is the only one.** The bound is derived from the strongest
+baseline, and a baseline is usually a column of the data — so *any* good column scores near
+it, and refusing every such column refuses good features along with leaks. The statistic
+cannot separate the two; only a claim about **when the value is knowable** can. Name the
+input in the contract's `assumedKnownAtPredictionTime` **with a reason** and its
+direct-prediction refusal becomes a recorded assumption carrying the measurement, so the
+claim and the size of the mistake-if-wrong sit together.
+
+Tiers 1 and 3 are not exemptable. A correlation of 0.999 is not rescued by a claim about
+timing — at that point the claim is the thing in doubt. And the self-check is passed an
+empty exemption map, so no contract can disarm the probe by naming it.
+
+**Beyond that, none of the three may be softened into a review step.** A constraint written
+as a refusal survives into the artefacts; written as a suggestion it holds only while
 someone remembers. Argue about a bound in the contract, where the argument is visible;
 the consequence of crossing it is not negotiable at runtime.
 

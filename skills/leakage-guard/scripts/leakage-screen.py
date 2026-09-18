@@ -140,9 +140,18 @@ def as_binary(vals: list[str]) -> list[int] | None:
 
 
 def screen_one(
-    name: str, values: list[str], target: list[str], bounds: dict
+    name: str, values: list[str], target: list[str], bounds: dict,
+    assumed: dict[str, str] | None = None,
 ) -> dict:
-    """One candidate against the target. Returns a verdict dict."""
+    """One candidate against the target. Returns a verdict dict.
+
+    `assumed` maps an input name to the contract's stated reason for believing it is
+    knowable at prediction time. It exempts the direct-prediction check ONLY. The
+    correlation and AUC bounds are not exemptable, because a candidate correlating 0.999
+    with the target is not rescued by a claim about timing -- at that point the claim is
+    the thing in doubt.
+    """
+    assumed = assumed or {}
     out: dict = {"input": name, "refused": False, "reasons": [], "measured": {}}
 
     xs, ys = numeric_pairs(values, target)
@@ -174,13 +183,43 @@ def screen_one(
         if floor is not None:
             e = mae(xs, ys)
             out["measured"]["directPredictionMae"] = round(e, 6)
-            if e <= floor:
-                out["refused"] = True
-                out["reasons"].append(
-                    f"used directly as the prediction it scores MAE {e:.6f}, at or "
-                    f"below the quality bound {floor}. If one input already clears the "
-                    "bar the model must clear, the model is not what is being measured."
-                )
+
+            # The margin widens the band deliberately: a candidate that lands JUST above
+            # the gate is not meaningfully different from one that lands on it, and
+            # `screening-scalar.md` has documented this bound since before the script read
+            # it. Absent, the band is the bare floor, which is what earlier runs got.
+            margin = bounds.get("minDirectPredictionMarginPct")
+            band = floor * (1 + float(margin) / 100.0) if margin is not None else floor
+
+            if e <= band:
+                edge = (f"within {margin}% of the quality bound {floor} (band {band:.6f})"
+                        if margin is not None else f"at or below the quality bound {floor}")
+                # Here is the circularity this has to answer. The bound is derived from the
+                # strongest baseline, and a baseline is itself usually a column of the data,
+                # so any column that scores like a good baseline scores near the bound. That
+                # is not evidence of leakage -- it is what a good feature looks like. The
+                # statistic cannot tell the two apart; only the claim about WHEN the value
+                # is knowable can, and that claim belongs to whoever wrote the contract.
+                why = assumed.get(name)
+                if why:
+                    out["assumed"] = True
+                    out["reasons"].append(
+                        f"used directly as the prediction it scores MAE {e:.6f}, {edge}. "
+                        f"NOT refused, because the contract declares this input knowable at "
+                        f"prediction time: {why}. The measurement stands beside the claim so "
+                        "a reader can judge both; if the claim is wrong, this number is the "
+                        "size of the mistake."
+                    )
+                else:
+                    out["refused"] = True
+                    out["reasons"].append(
+                        f"used directly as the prediction it scores MAE {e:.6f}, {edge}. If "
+                        "one input already clears the bar the model must clear, the model is "
+                        "not what is being measured. If it is genuinely knowable at "
+                        "prediction time, say so in the contract's "
+                        "assumedKnownAtPredictionTime with a reason -- an assumption on the "
+                        "record is reviewable, and a silent exemption is not."
+                    )
 
     if binary is not None and len(xs) >= 3:
         # Score the candidate against the binary target on rows where it parses.
@@ -257,6 +296,13 @@ def run(data: dict[str, list[str]], contract: dict) -> dict:
         raise Refusal(f"target {tname!r} is not a column in the data")
 
     bounds = contract.get("bounds") or {}
+    assumed = contract.get("assumedKnownAtPredictionTime") or {}
+    if not isinstance(assumed, dict):
+        raise Refusal(
+            "assumedKnownAtPredictionTime must map each input name to the REASON it is "
+            "knowable at prediction time. A bare list would let an exemption travel without "
+            "the justification that makes it reviewable."
+        )
     if not bounds:
         raise Refusal(
             "the contract declares no bounds. A screen with no bound cannot refuse, and "
@@ -280,7 +326,7 @@ def run(data: dict[str, list[str]], contract: dict) -> dict:
             "the refusal before trusting any PASS from this run."
         )
     probe_values, probe_kind = probe
-    probe_verdict = screen_one("__probe__", probe_values, target, bounds)
+    probe_verdict = screen_one("__probe__", probe_values, target, bounds, assumed={})
     if not probe_verdict["refused"]:
         raise Refusal(
             f"THE SCREEN DID NOT FIRE ON ITS OWN PROBE ({probe_kind}). The probe is "
@@ -289,7 +335,7 @@ def run(data: dict[str, list[str]], contract: dict) -> dict:
             "meaningless -- fix the bounds or the statistics before reading further."
         )
 
-    verdicts = [screen_one(c, data[c], target, bounds) for c in candidates]
+    verdicts = [screen_one(c, data[c], target, bounds, assumed) for c in candidates]
     refused = [v for v in verdicts if v["refused"]]
     unscreenable = [v for v in verdicts if not v.get("screenable")]
 

@@ -452,6 +452,7 @@ def check_regressions(skip: bool) -> None:
     suites = [
         ("scripts/trial-plan-lint.py", []),
         ("scripts/trial-control.py", ["skills/ml-planning/scripts"]),
+        ("scripts/trial-fixes.py", []),
     ]
     if skip:
         for name, _ in suites:

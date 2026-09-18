@@ -105,6 +105,84 @@ def passes(score: float, bound: float, metric: str, inclusive: bool) -> bool:
     return score >= bound if inclusive else score > bound
 
 
+def check_derivation(contract: dict, cpath: Path, bound: float, metric: str,
+                     lower: bool) -> str:
+    """Recompute the bound from the artefact the contract says it came from.
+
+    `declaredAt` alone cannot carry the ordering claim, and a validation run found this
+    itself: it rewrote the contract and left the old `declaredAt` in place, which would
+    have forged the very evidence the timestamp exists to provide. Nothing in this script
+    could have told.
+
+    So the bound has to be reproducible. `derivedFrom` names the baseline report, the
+    baseline within it, and the margin; the arithmetic is redone here. Rewriting the
+    contract to a bound the model can clear now breaks that arithmetic, and it breaks it
+    whatever the timestamp says -- which is the point, because the timestamp is the field
+    an author controls and the baseline's own measurements are not.
+
+    THE LIMIT, stated rather than left for someone to find: a second forgery, rewriting
+    the baseline report too, defeats this. That artefact is covered by training-check.py's
+    own digest rules, so the two together are harder to fake than either alone -- but
+    "harder" is the honest word, not "impossible".
+    """
+    d = contract.get("derivedFrom")
+    if not isinstance(d, dict):
+        return ("not declared -- the bound rests on `declaredAt` alone, which its own "
+                "author can rewrite. Add derivedFrom {artifact, baseline, marginPct} to "
+                "make the bound reproducible.")
+
+    art = d.get("artifact")
+    if art in NULLISH:
+        raise Refusal("derivedFrom names no artifact, so there is nothing to recompute "
+                      "the bound from.")
+    path = Path(art)
+    if not path.is_absolute():
+        path = (cpath.parent / art) if not (Path.cwd() / art).is_file() else Path(art)
+    if not path.is_file():
+        raise Refusal(
+            f"derivedFrom names {art!r}, which is not on disk (looked at {path}). A "
+            "derivation that cannot be checked is a derivation nobody checked."
+        )
+
+    src = load(path)
+    baselines = src.get("baselines") or src.get("naive") or {}
+    name = d.get("baseline")
+    if name in NULLISH:
+        raise Refusal("derivedFrom names no baseline within the artifact.")
+    if name not in baselines:
+        raise Refusal(
+            f"derivedFrom names baseline {name!r}, which {art} does not report. It has: "
+            f"{sorted(baselines) or 'nothing'}."
+        )
+
+    entry = baselines[name]
+    base_score = entry.get(metric) if isinstance(entry, dict) else entry
+    if not isinstance(base_score, (int, float)):
+        raise Refusal(
+            f"baseline {name!r} in {art} reports {base_score!r} for {metric}, not a number."
+        )
+
+    margin = d.get("marginPct")
+    if not isinstance(margin, (int, float)):
+        raise Refusal("derivedFrom declares no numeric marginPct, so the bound cannot be "
+                      "recomputed from the baseline.")
+
+    factor = (1 - float(margin) / 100.0) if lower else (1 + float(margin) / 100.0)
+    expected = base_score * factor
+    tol = max(abs(expected) * 1e-3, 1e-6)
+    if abs(bound - expected) > tol:
+        raise Refusal(
+            f"the bound does not follow from its own declared derivation. {name} scores "
+            f"{base_score} for {metric}; with a {margin}% margin the bound should be "
+            f"{expected:.6f}, and the contract says {bound}. Either the contract was "
+            "revised after the fact or the derivation is misdescribed -- and a bound that "
+            "cannot be rederived cannot be shown to predate the score it judges, whatever "
+            "declaredAt says."
+        )
+    return (f"recomputed: {name} {metric} {base_score} with a {margin}% margin gives "
+            f"{expected:.6f}, matching the declared bound")
+
+
 def apply_gate(contract: dict, ev: dict, cpath: Path, epath: Path) -> dict:
     ordering = check_ordering(contract, ev, cpath, epath)
 
@@ -122,6 +200,7 @@ def apply_gate(contract: dict, ev: dict, cpath: Path, epath: Path) -> dict:
         )
     lower = contract.get("lowerIsBetter", metric.lower() in LOWER_IS_BETTER)
     inclusive = contract.get("boundInclusive", True)
+    derivation = check_derivation(contract, cpath, float(bound), metric, lower)
 
     measured = ev.get("metrics") or {}
     if metric not in measured:
@@ -195,6 +274,7 @@ def apply_gate(contract: dict, ev: dict, cpath: Path, epath: Path) -> dict:
         "beatsBaseline": beaten,
         "contractDigest": digest(cpath),
         "orderingEstablishedBy": ordering,
+        "boundDerivation": derivation,
         "registrationAllowed": verdict == "PASS",
         "releaseAllowed": verdict == "PASS",
     }
@@ -218,6 +298,15 @@ def main() -> int:
     ap.add_argument("contract", type=Path)
     ap.add_argument("evaluation", type=Path)
     ap.add_argument("--out", type=Path, default=None, help="write the gate report here")
+    ap.add_argument(
+        "--no-fail-on-refusal",
+        action="store_true",
+        help=(
+            "exit 0 on REFUSED, so a pipeline step routes on the report instead of "
+            "crashing. For use inside a Processing step whose successor is a ConditionStep "
+            "reading registrationAllowed. The suppression is recorded in the report."
+        ),
+    )
     args = ap.parse_args()
 
     try:
@@ -227,6 +316,14 @@ def main() -> int:
     except Refusal as e:
         print(f"CANNOT APPLY GATE: {e}", file=sys.stderr)
         return 2
+
+    if args.no_fail_on_refusal:
+        # The suppression goes in the report, not just in the log. A ConditionStep reads
+        # the report, so this is the one place a downstream reader will actually see that
+        # a refusal was allowed not to stop the step. Without it the flag would quietly
+        # convert a refusal into advice, which is the one thing this power's taxonomy says
+        # must not happen silently.
+        report["failOnRefusalSuppressed"] = True
 
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -245,6 +342,18 @@ def main() -> int:
     for line in report.get("remedy", []):
         print(f"  fix: {line}", file=sys.stderr)
     print("  registration and release are not permitted.", file=sys.stderr)
+
+    if args.no_fail_on_refusal:
+        # A refusal that exits zero is still a refusal: registrationAllowed is false and
+        # every reader of the report sees it. What changes is who acts on it. Inside a
+        # Pipeline the successor should be a ConditionStep routing on that field, because
+        # a metric missing its bound is a RESULT and not a crashed job -- a validation run
+        # had to write its own 110-line wrapper to get this behaviour, and the wrapper was
+        # right. Outside a Pipeline the exit code is what makes the refusal hold, so it
+        # stays the default and this has to be asked for.
+        print("  exit 0 requested (--no-fail-on-refusal); route on "
+              "registrationAllowed: false.", file=sys.stderr)
+        return 0
     return 1
 
 
