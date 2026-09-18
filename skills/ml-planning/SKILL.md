@@ -372,16 +372,12 @@ this layer cannot do.
 
 ## Composing the stages into a Pipeline
 
-Deciding the stage sequence and compiling it into a `Pipeline` object are one decision in
-two forms: `PLAN.md` is the form a person reads, the definition is the form SageMaker
-executes. Splitting them into two skills lets the two drift, and a plan that disagrees with
-the pipeline it produced is worse than either alone.
-
-Four rules, each of which a trial run got right: compile locally before creating anything;
-every gate becomes a `ConditionStep` that fails closed; a definition whose code bundle is
-not yet immutable is marked `readyForExecution: false`; and step guidance belongs in the
-stage's own skill rather than here. `references/pipeline-composition.md` has each with its
-reasoning.
+Deciding the stage sequence and compiling it into a `Pipeline` object are one decision in two
+forms: `PLAN.md` is what a person reads, the definition is what SageMaker executes. Splitting
+them into two skills lets the two drift. Four rules: compile locally before creating anything;
+every gate becomes a `ConditionStep` that fails closed; a definition whose code bundle is not yet
+immutable is marked `readyForExecution: false`; and step guidance belongs in the stage's own
+skill. `references/pipeline-composition.md` has each with its reasoning.
 
 ## Principles
 
