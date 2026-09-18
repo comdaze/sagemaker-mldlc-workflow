@@ -673,6 +673,18 @@ def check_preset_coverage(header: dict, tasks: list[Task], stages: dict, r: Repo
     what it claimed to.
     """
     if "PRESET" not in header:
+        # Required, not optional. Three checks read PRESET -- coverage, prerequisite
+        # completeness, and next.py's whole dispatch -- so a plan without it silently
+        # disables all three. A real run declared its scope in prose instead ("batch
+        # next-day forecasting, custom range"), and the omission let stage 13 stand with
+        # its prerequisite stage 12 absent from the plan entirely. Nothing fired, because
+        # there was no declared set of stages to compare anything against.
+        r.fail(
+            "preset",
+            None,
+            "no PRESET line. Declare one from stages.toml, so the run's scope is checkable "
+            "rather than described. A scope in prose cannot be compared with the tasks.",
+        )
         return
     _, name = header["PRESET"]
     presets = stages.get("presets") or {}

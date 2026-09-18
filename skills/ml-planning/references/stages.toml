@@ -225,6 +225,13 @@ mode = "inline"
 full-lifecycle = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
 retrain-existing = [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12]
 data-prep-only = [1, 2, 3, 4, 5]
+# Added because a real run needed it and could not name it: train from scratch and deliver
+# batch predictions, with no real-time endpoint and no monitoring yet. It declared that scope
+# in prose instead, which left `PRESET` empty and silently disabled three checks. Note it
+# still includes 11 and 12 -- predictions people may act on come from a registered, released
+# model, and that run's own report agreed, calling its unregistered output a structural dry
+# run rather than a forecast.
+batch-serving = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
 inference-only = [1, 2, 13, 14]
 
 [presets-satisfied-externally]

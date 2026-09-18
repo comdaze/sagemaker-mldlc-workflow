@@ -388,6 +388,52 @@ The balance of evidence is that it did — the answers track the body's wording 
 including a rule absent from every other file — but compliance was not independently
 verified.
 
+### What round 11 actually returned
+
+Judged against the six rows above, from disk rather than from the run's own account.
+
+| Question | Verdict |
+|---|---|
+| Does the loop get used at all? | **Failed.** No `PLAN.state.json`. `next.py` was never called |
+| Is truncation gone? | **Unjudgeable** — no `PRESET`, so the coverage rule could not fire. Stages 11, 12, 14, 15, 16 have no task |
+| Does the deliverable survive? | **Passed.** Stage 13 present as `[~]`, an explicit local dry run on a refused model, labelled unpublishable |
+| Is concurrency recorded honestly? | **Not exercised** — nothing was submitted, so `[>]`'s absence is correct |
+| Are the rules satisfiable in practice? | **Passed**, and this is the first time. `plan-lint --artifacts` exits 0 on a real run's plan with no hand repair |
+| Did bookkeeping cost ML work? | **No.** 37 artefacts and 9 modules against round 10's 48 and 8 |
+
+**The row I expected to fail did not, and the row I had not thought to write did.** Bookkeeping
+did not crowd out the work. What failed was the loop being ignored entirely — and the cause was
+mine: `next.py` first appeared at character 18,019 of `SKILL.md`, while the list headed *if you
+read nothing else in this file, do these four* said only "write `PLAN.md` and lint it". A run
+following the top of the file had no reason to call the dispatcher. It is now item 4, at
+character 2,410.
+
+**Two things this run did that no earlier one did.** Eight of its twelve tasks are `[~]` with
+`instead-of:` and a live `blocked-by: 3`, where task 3 is `[?]` waiting on a versioned bucket
+and an execution role that it actually asked for. That is round 9's failure — local work done
+while the plan said `[ ]` — expressed honestly, using vocabulary that did not exist then. And
+the quality gate refused (MAE 152.951634 against a pre-registered 138.806096, also failing to
+beat the training-mean baseline at 150.285530) and the run did not paper over it: it called its
+own 96-point output a structural dry run on a rejected model and said so in the summary.
+
+**`PRESET` was load-bearing and optional, which is a design fault.** Three checks read it, and
+`check_preset_coverage` returned silently when it was absent. So the chain ran: no preset → no
+coverage check → stage 12 missing entirely → stage 13's declared prerequisite `[10, 12]`
+unsatisfied and invisible. Adding `PRESET: full-lifecycle` to a copy of that plan makes all of
+it fire at once, and `next.py` answers `repair-plan: stages missing 11, 12, 14, 15, 16`. It is
+now required.
+
+**And the run had a legitimate scope none of the four presets could express** — train from
+scratch, deliver batch predictions, no endpoint, no monitoring. It described that in prose,
+which is the reasonable thing to do when the vocabulary is missing, and the omission is what
+disabled the checks. `batch-serving` now exists. It deliberately includes stages 11 and 12:
+predictions anyone might act on come from a registered, released model, and this run's own
+report agreed with that before the preset did.
+
+One cost was paid and is worth recording. Round 10's 73 files were never archived and are gone.
+The risk was flagged before round 11 began and the run overwrote them, so round 10 survives only
+as the measurements quoted in this document.
+
 ### Three faults a validation run found in the checks themselves
 
 **The leakage screen refused good features, and the cause was circular.** The

@@ -176,6 +176,10 @@ def negatives() -> list[tuple[str, str, str, str]]:
         ("preset", "PRESET 覆盖不全",
          sub("4. [ ] **Leakage guard** _(Stage: 4 | Skill: leakage-guard)_\n", ""),
          "the preset includes stage 4 and no task covers it"),
+        ("preset", "根本没有 PRESET 行",
+         sub("PRESET: data-prep-only\n", ""),
+         "no PRESET at all -- round 11 declared its scope in prose and three checks went "
+         "silent"),
         ("concurrency", "[>] 缺 execution:",
          sub("5. [ ] **Data processing**", "5. [>] **Data processing**"),
          "[>] without the run it is awaiting"),

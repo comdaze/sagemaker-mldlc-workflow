@@ -144,3 +144,24 @@ Measured on one machine with one model and an identical prompt: two activations 
 attempts without that file, three in three with it. Steering is loaded unconditionally
 rather than matched, which is the whole difference. Typing `/ml-planning` calls the skill by
 name and needs no file at all.
+
+## If you were asked to demonstrate this power rather than to build something
+
+Clicking **Try power** opens a session with a fixed prompt asking for an overview and a
+simple example. Answer it in a few lines, then **ask** — do not manufacture the example.
+
+A trial run did manufacture one: from a CSV header alone it produced a target column, a
+prediction time and a six-item denylist. Everything in it was plausible and none of it
+was established, which is the failure this power exists to prevent, performed by the
+power itself. A demonstration is not an exemption from its own rules.
+
+So: one paragraph on what the workflow does and which skills exist versus are planned.
+Then the environment facts, because those are real and cost one command each. Then the
+three questions that gate the work — what is predicted, at what moment, for what
+decision — and stop.
+
+Reading available data to ask a *sharper* question is good; naming the inputs you
+suspect and asking whether they are knowable at prediction time beats a generic prompt.
+Reading it to assert what the target is, is not. The line is whether the output is a
+question or a claim.
+

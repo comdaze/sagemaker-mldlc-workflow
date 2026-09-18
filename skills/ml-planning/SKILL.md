@@ -29,33 +29,29 @@ If you read nothing else in this file, do these four. Each is expanded below.
    said SageMaker" is not permission to.
 2. **Name the prediction time.** Everything `leakage-guard` decides depends on it, and
    it is a declaration, not a discovery.
-3. **Pick a scope preset**, so the size of the run is a decision rather than an accident.
-4. **Write `PLAN.md` and lint it.** A run with no plan file leaves no state a later
-   session can resume from, and the linter is the only thing that checks the plan is
-   coherent.
+3. **Pick a scope preset and write it as `PRESET:`**, so the size of the run is a decision
+   rather than an accident. It is not optional bookkeeping: three checks read it, and
+   without it none of them can fire.
+4. **Write `PLAN.md`, then let `next.py` drive it.** It issues one directive at a time and
+   `report.py` writes the state back. A run compiled a real Pipeline and 48 artefacts while
+   its plan quietly lost three stages, because deciding whether work remained was its own
+   call. Do not make that call yourself.
+
+```bash
+S=$(dirname "$(ls ~/.kiro/powers/installed/*/skills/ml-planning/scripts/next.py \
+     ./skills/ml-planning/scripts/next.py 2>/dev/null | head -1)")
+python3 "$S/next.py" PLAN.md --artifacts artifacts/    # what now?
+python3 "$S/report.py" --task N --state x --artifact PATH   # what happened
+```
 
 Skipping 1 or 4 is what this list prevents: a plan that never recorded its partition, or
-a run that left nothing to resume from.
+a run that decided for itself that it had finished.
 
 ## If you were asked to demonstrate this power rather than to build something
 
-Clicking **Try power** opens a session with a fixed prompt asking for an overview and a
-simple example. Answer it in a few lines, then **ask** — do not manufacture the example.
-
-A trial run did manufacture one: from a CSV header alone it produced a target column, a
-prediction time and a six-item denylist. Everything in it was plausible and none of it
-was established, which is the failure this power exists to prevent, performed by the
-power itself. A demonstration is not an exemption from its own rules.
-
-So: one paragraph on what the workflow does and which skills exist versus are planned.
-Then the environment facts, because those are real and cost one command each. Then the
-three questions that gate the work — what is predicted, at what moment, for what
-decision — and stop.
-
-Reading available data to ask a *sharper* question is good; naming the inputs you
-suspect and asking whether they are knowable at prediction time beats a generic prompt.
-Reading it to assert what the target is, is not. The line is whether the output is a
-question or a claim.
+A demonstration is not an exemption from this power's own rules: the plan, the gates and the
+refusals all still apply, and a demo that skips them demonstrates nothing.
+`references/asking-and-blocking.md` has the shape of the answer.
 
 ## Step 1: Establish the partition, the SDK, and the target
 
