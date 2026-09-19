@@ -230,6 +230,8 @@ def check_stage_catalogue() -> None:
                     "mention it; the reader and the linter disagree"
                 )
 
+    check_stages_are_named(stages)
+
 
 def check_import_cleanliness() -> None:
     """Nothing outside version control is sitting in the tree waiting to be packaged.
@@ -498,6 +500,29 @@ def check_regressions(skip: bool) -> None:
     for cache in ROOT.rglob("__pycache__"):
         if ".git" not in cache.parts:
             shutil.rmtree(cache, ignore_errors=True)
+
+
+
+def check_stages_are_named(stages: dict) -> None:
+    """Every stage must be named in the body of the skill that owns it."""
+    # Every stage must be NAMED in its owner's body. The skills are invoked per stage -- next.py
+    # dispatches `stage: 13, skill: release-and-serve` -- so a body that never says which of its
+    # sections serve stage 13 leaves the agent to read 369 lines and guess, or to apply stage 12's
+    # gates to 13. Two skills owned six stages between them and mentioned none of them; a third
+    # had two sections filed under the wrong stage heading, one announcing it in its own title.
+    # No existing check could see any of that.
+    for sid, s in stages.items():
+        if not sid.isdigit():
+            continue                      # cross-cutting owners have no stage number to name
+        owner = s.get("owner")
+        body = ROOT / "skills" / str(owner) / "SKILL.md"
+        if not body.is_file():
+            continue                      # check_skills reports a missing skill
+        text = body.read_text(encoding="utf-8")
+        if not re.search(rf"\bstages?\b[^.\n]{{0,24}}\b{sid}\b", text, re.I):
+            fail(f"stage {sid} ({s.get('name')}) is owned by {owner}, whose SKILL.md never names "
+                 f"it. A skill invoked for one stage has to say which of its content applies to "
+                 "that stage; without it the reader guesses or reads everything.")
 
 
 def check_installed_copy_is_current() -> None:

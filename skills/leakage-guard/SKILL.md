@@ -19,6 +19,11 @@ failure is the expensive one, because every structural check passes on the way o
 holds in every modality. Which statistic implements it is in `references/`, and step 3
 says which one to read.
 
+**This skill is stage 4 of the sixteen, and its own steps are numbered separately.** The six
+`Step N` headings below are internal to the screen — step 6 is not stage 6. The distinction is
+worth the sentence because both numbering systems live in this power, and a reader arriving from
+`next.py`'s `stage: 4` directive has no other way to tell them apart.
+
 ## Step 1: name the prediction time
 
 "Prediction time" is domain-defined, and it is a decision, not a discovery. Write it

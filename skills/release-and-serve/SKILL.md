@@ -16,7 +16,7 @@ Two ideas carry this whole skill:
 The second is the transferable part. Three independent gates below apply it, and
 each one exists because the naive version failed in production.
 
-## The release candidate
+## Stage 11 — the release candidate
 
 Emitted by the training pipeline once, then never modified. Required fields:
 
@@ -156,7 +156,7 @@ rests on. So the version identity lives outside the bytes — in the table row, 
 again in a pin-the-source audit artefact the release pipeline emits — and Gate 2
 is what makes the two agree.
 
-## The correlation id
+## Stages 11–14 — the correlation id
 
 Mint exactly one, from **trusted execution context**, not from anything a caller
 supplied:
@@ -174,7 +174,7 @@ survives whatever happens to those products.
 Carry it into the structured diagnostic record too, so a failure anywhere in the
 chain is queryable by the same key.
 
-## Gate 1: success means exit code AND artefacts
+## Stage 12, gate 1: success means exit code AND artefacts
 
 A job that reports `SUCCEEDED` has told you about itself. Require both:
 
@@ -186,7 +186,7 @@ of its internal iterations had failed. Status said success; there was no model.
 Declare the required output files in the contract (a metrics file, exactly one
 model directory, a results table) and check for them.
 
-## Gate 2: validate the candidate before anyone can approve it
+## Stage 12, gate 2: validate the candidate before anyone can approve it
 
 Between "training emitted a candidate" and "a human approves it" the candidate
 must be proven unchanged:
@@ -202,7 +202,7 @@ not by trigger**: training drops an immutable, version-pinned candidate at a
 known key, and the release pipeline picks it up. A trigger-based handoff carries
 no evidence of what it is about.
 
-## Gate 3: approval — separate the three roles
+## Stage 12, gate 3: approval — separate the three roles
 
 The mistake to avoid is one component that shows the button, decides, and writes
 the result. Split it:
@@ -229,7 +229,7 @@ A human comment on the approval is worth keeping, but persist it *beside* the
 governed audit record rather than inside it. The audit record's schema is the
 contract; free text is not part of it.
 
-## Per-environment promotion
+## Stage 12 — per-environment promotion
 
 After approval, promote per environment (`dev` → `test` → `prod`) with, for each:
 
@@ -275,7 +275,7 @@ Instance type and count come from the contract per environment. There is no
 right-sizing service to consult in the China partition, so this is a declared
 decision revised by measurement — not a gap some tool fills.
 
-## Choosing the serving mode — declare it, do not default to it
+## Stages 13 and 14 — choosing the serving mode, and not defaulting to it
 
 Registration and release put an approved model somewhere. Serving decides how
 predictions actually get made, and the choice belongs in the contract as
@@ -299,7 +299,7 @@ acceptable — say so rather than picking the closer of the two. That is a real 
 what SageMaker offers cheaply in the China partition, where Serverless Inference does
 not exist.
 
-## Batch inference
+## Stage 13 — batch inference
 
 The job is not the deliverable; the **verified** output is.
 
@@ -319,7 +319,7 @@ unique on the key, and assert the count matches the input. Then archive the inpu
 output, the model identity and the error summary together — see `monitor-and-retrain`,
 which needs exactly that record to detect drift without the managed capability.
 
-## Real-time endpoints
+## Stage 14 — real-time endpoints
 
 Only reached when the contract declares it. Three properties to establish before traffic
 arrives:
@@ -338,7 +338,7 @@ The China partition has no Inference Recommender, so instance type and count are
 per environment in the contract and changed when measurement says to. Do not present a
 guess as a recommendation.
 
-## Artefacts that cannot be deployed
+## Stages 11–12 — artefacts that cannot be deployed
 
 Some registered artefacts have no serving-container contract — a generated-code
 AutoML output, for instance. These should be **registered and governed but not
@@ -350,7 +350,7 @@ governed mutator code as the main path. Merge both groups in the approvals view 
 one surface shows everything awaiting a human. Encoding "not deployable" as the
 absence of stages is stronger than a flag someone can override.
 
-## Failures should be artefacts, not log archaeology
+## Stages 11–14 — failures should be artefacts, not log archaeology
 
 Emit a structured diagnostic record on failure — stage, component, status, error,
 affected resources, output locations, the correlation id, a timestamp — and surface
@@ -358,7 +358,7 @@ it where the human is. "The user should not have to go read S3 to find out why i
 failed" is a design requirement, not a nicety, and it is cheap once the record has
 a schema.
 
-## Where the console cannot help you
+## Stages 11–14 — where the console cannot help you
 
 In the AWS China partition the Studio console has **no Model Registry page and no
 approval UI**, so the approval surface described here is not a nicer alternative —

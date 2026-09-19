@@ -14,7 +14,7 @@ features entered maintenance mode **globally** on 2026-07-30 and are closed to n
 customers, Model Monitor among them. So this is not a China question. China just
 gets you to it first.
 
-## The rule
+## Stages 15–16 — the rule
 
 > **Mirror invariants. Read mutable state live.**
 >
@@ -32,7 +32,7 @@ The payoff is durability. When a product is retired or frozen, you lose an
 execution surface, which is replaceable. If your memory lived in it, you lose your
 history, which is not.
 
-## Two replacements that were built and then removed
+## Stage 15 — two replacements that were built and then removed
 
 Both were correct to build at the time and correct to remove. This is the honest
 part, and it is the part no vendor material contains.
@@ -85,7 +85,7 @@ integrations (a warehouse schema and a datasource) to display numbers you can
 already fetch. Do it when several teams need self-service SQL — not to draw five
 charts your own frontend can draw.
 
-## Also available, also deliberately unused
+## Stage 15 — also available, also deliberately unused
 
 SageMaker **Model Cards** and **Lineage** both work in the China Regions. Neither
 is used in the reference platform. The substitute is one correlation id carried in
@@ -100,7 +100,7 @@ with `DescribeTrainingJob` for the same metric on the same job** (1.62136 versus
 1.20695). Two sources of one number is strictly worse than one source. Pick one,
 declare it, and turn the other off (`pipeline_experiment_config=None`).
 
-## What *is* worth building
+## Stage 15 — what *is* worth building
 
 ### Drift analysis — yes, and here is the part that is easy to get wrong
 
@@ -162,7 +162,7 @@ Be honest about this rather than implying automation exists. Declaring the answe
 in a reviewable contract is a legitimate engineering position; a home-grown
 load-testing harness nobody maintains is not obviously better.
 
-## Deciding to retrain, and where the new run re-enters
+## Stage 16 — deciding to retrain, and where the new run re-enters
 
 Monitoring exists to answer one question: **is this model still good enough to keep
 using?** Retraining is what you do when the answer turns out to be no. Both live here
@@ -197,7 +197,7 @@ and the decay is invisible: every individual run looks like it evaluated honestl
 the leakage screen or the baselines has skipped the two checks most likely to catch what
 changed in the data.
 
-## The decision procedure
+## Stage 16 — the decision procedure
 
 Before building any replacement, in order:
 
