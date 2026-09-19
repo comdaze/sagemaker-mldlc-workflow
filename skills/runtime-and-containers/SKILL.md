@@ -298,10 +298,54 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 ```
 
+**`requirements.txt` structurally cannot express this, and that is the root cause rather than an
+aside.** pip resolves Python distributions; `libgomp1` is an OS package, so the one file everyone
+treats as "the dependency list" is blind to an entire class of dependency. That run's
+`requirements.txt` was complete and correct — `numpy==1.24.1`, `lightgbm==4.5.0` — through eight
+Dockerfile revisions and a failed transform job.
+
+So **declare the OS packages too, in a file next to it** rather than inline in a `RUN` line where
+nobody reviews them:
+
+```
+# system-packages.txt — why each one, because a reader cannot tell from the name
+libgomp1        # OpenMP runtime; lightgbm and xgboost dlopen libgomp.so.1
+```
+```dockerfile
+COPY system-packages.txt /tmp/
+RUN apt-get update \
+    && sed 's/#.*//' /tmp/system-packages.txt | xargs -r apt-get install -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+```
+
 The general rule, since the specific library changes with the framework: **import the package in
 the build, not just install it.** A `RUN python -c "import lightgbm"` line costs one layer and
 converts a failed inference job into a failed build, which is the cheaper place by a wide margin.
-An AWS DLC already carries these runtimes, which is a reason to start from one.
+It also catches the next such library without anyone having to know its name in advance.
+
+### Choosing `-slim` is the decision that generates all of the above
+
+That run wrote **eight Dockerfile revisions** and changed base image four times:
+
+```
+12:22  FROM python:3.9-slim
+12:30  FROM 451049120500.dkr.ecr.cn-northwest-1.amazonaws.com.cn/sagemaker-scikit-learn:1.2-1-cpu-py3
+12:39  FROM python:3.9-slim                                   ← reverted
+12:42  FROM m.daocloud.io/docker.io/library/python:3.9-slim    ← Docker Hub unreachable
+13:50  + ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+14:03  + vendored wheels, --no-index --find-links              ← index still not working
+15:27  + apt-get install libgomp1                             ← the transform job had failed
+```
+
+**It had the right answer at 12:30 and abandoned it.** A regional SageMaker or DLC image is in the
+partition, needs no public registry and no mirror, and already carries the numeric runtimes —
+including `libgomp`, because scikit-learn and scipy need it too. Every line after 12:39 is a
+consequence of the revert: the unreachable pull, the mirror, the vendored wheels, and finally the
+missing system library, three hours later and one billed job downstream.
+
+So treat the base image as the load-bearing choice it is. `FROM python:*-slim` is the reasonable-
+looking default that buys a small image and pays for it in the four problems above; start from a
+regional AWS image and add what it lacks, which is usually only your own code.
 
 ## Resolving the image — never assemble a URI
 
