@@ -224,6 +224,38 @@ rejected by the service, not merely inefficient. Per-region availability of each
 **not** verified against the China baseline — the rule requires that the user chose, and claims
 nothing about what is offered.
 
+### Two AMT rejections that cost a real run ten attempts
+
+Both are `CreateHyperParameterTuningJob` refusing before anything runs, and neither is
+guessable from the parameter names.
+
+**The tuning job name is capped at 32 characters, not 63.** The API pattern is
+`[a-zA-Z0-9](-*[a-zA-Z0-9]){0,31}`. A run used the same naming convention that had worked all
+day for processing and training jobs and was rejected:
+
+```
+ValidationException: 2 validation errors detected: Value
+'sm-workflow-amt-lightgbm-20260919-185622' at 'hyperParameterTuningJobName' failed to
+satisfy constraint: Member must satisfy regular expression pattern: [a-zA-Z0-9](-*[a-zA-Z0-9]){0,31}
+```
+
+That is 40 characters. **Processing and training job names allow 63, so a convention that fits
+everywhere else fails only here** — and the failure arrives after the candidates are declared
+and the compute is authorised. Budget the name: a `-YYYYMMDD-HHMMSS` stamp is 16 of the 32,
+leaving 15 for everything descriptive. Derive the trial names from a short stem, not from the
+pipeline's own name.
+
+**`hyperparameters_to_keep_static` requires Autotune.** Setting it without enabling Autotune
+raises before the API call:
+
+```
+ValueError: hyperparameters_to_keep_static parameter is set, however Autotune mode is not enabled.
+```
+
+It reads like a way to pin some hyperparameters while searching others. It is not — it belongs
+to Autotune, where AWS chooses the ranges. To hold a value fixed in an ordinary search, pass it
+as a plain hyperparameter and simply leave it out of the ranges.
+
 ### Declare the candidates before running them
 
 Write the search space — or the explicit candidate list — into the contract first. Two

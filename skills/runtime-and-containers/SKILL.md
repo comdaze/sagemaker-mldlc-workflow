@@ -138,7 +138,27 @@ Use these, not the shims.
 | Training configs | `sagemaker.core.training.configs` |
 | Deploy / packaging | `sagemaker.serve.ModelBuilder` |
 | Session | `sagemaker.core.helper.session_helper.Session` (re-exported as `sagemaker.train.Session`) |
-| Pipeline machinery | `sagemaker.core.workflow/` and `sagemaker.mlops/workflow/` — note `sagemaker.mlops` does **not** export `Pipeline` at its top level |
+| Pipeline **primitives** | `sagemaker.core.workflow` — `ConditionEquals`, `ConditionLessThanOrEqualTo`, `JsonGet`, `ParameterInteger`, `ParameterString`, `PropertyFile` |
+| Pipeline **steps** | `sagemaker.mlops.workflow` — `Pipeline`, `ProcessingStep`, `TrainingStep`, `TransformStep`, `ConditionStep`, `FailStep` |
+| Model object | `sagemaker.core.Model`? **No** — `Transformer` imports from `sagemaker.core`, `Model` does not |
+
+**That split cost a real run seven failed imports, so take the two rows literally.** The
+conditions and parameters are in `core`, the steps are in `mlops`, and both are flat modules
+with no submodules to reach into. These all raised `ModuleNotFoundError`, in this order:
+
+```
+sagemaker.core.workflow.steps          sagemaker.core.workflow.pipeline
+sagemaker.core.workflow.condition_step sagemaker.mlops.workflow.pipeline_context
+sagemaker.core.model                   sagemaker.core.configs
+sagemaker.core.source_code             sagemaker.train  (as an attribute of `sagemaker`)
+```
+
+Every one is the shape a v2 habit or a plausible guess produces. **`import sagemaker` then
+`sagemaker.train.…` is the trap worth naming**: the top level exports nothing, so that is an
+`AttributeError`, not an import error, and it reads like the package is broken. Import the
+leaf name directly. When a path is not in the table, list the module rather than guessing —
+`python3 -c "import sagemaker.mlops.workflow as w; print(dir(w))"` settles it in one call,
+and the run that guessed instead spent seven.
 
 **v3 is not a stable target either.** In 3.22.0, `sagemaker.train.configs` is a
 deprecation shim that warns its canonical home is `sagemaker.core.training.configs`
@@ -178,6 +198,38 @@ In v3, script mode changes shape usefully: a `SourceCode` configuration syncs a
 local directory into the job at runtime, so **changing your training script does not
 require rebuilding the container**. You still bring an image — yours, an AWS Deep
 Learning Container, or a third party's — and the SDK injects the code.
+
+## Do not build the image on the user's machine
+
+**Build with CodeBuild, not with local Docker.** A run reached the point of needing a BYOC
+inference image, probed for Docker, and got:
+
+```
+$ docker version --format '{{.Server.Version}}'
+zsh: command not found: docker          # exit 127
+```
+
+That is a **normal machine**, not a broken one. Docker Desktop is a licensed install on a
+corporate laptop, a local build is the wrong architecture whenever the laptop is arm64 and
+the endpoint is x86, and a multi-GB image pushed from a home connection is slow in a way no
+one budgeted for. Requiring it turns "register a model" into an IT ticket.
+
+So the container build is a **cloud** step. Ask the user which they have, and do not assume:
+
+| Route | When | What it costs |
+|---|---|---|
+| **CodeBuild** | the default — a buildspec, a source zip in S3, `aws codebuild start-build` | build minutes; no local tooling at all |
+| `sm-docker` (SageMaker Studio Docker CLI) | inside Studio, where it wraps CodeBuild for you | same, plus a Studio domain |
+| Local `docker build` | the user already has Docker **and** the architecture matches | free, and only then |
+
+Two things the buildspec must get right, because both produce an image that builds and then
+fails at runtime: `--platform linux/amd64` unless the endpoint is explicitly Graviton, and an
+ECR login in `pre_build` (`aws ecr get-login-password | docker login --username AWS
+--password-stdin`) against **the partition's own registry host** — `.amazonaws.com.cn` in
+China, which is the same never-assemble-a-URI rule as below.
+
+**Check for Docker before writing a plan that needs it, not after.** `command -v docker` is
+one line, and its absence changes the stage's design rather than stopping it.
 
 ## The BYOC contract
 
