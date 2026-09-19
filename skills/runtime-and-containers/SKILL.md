@@ -277,6 +277,32 @@ locations, the entry point discovery, the serving stack — so use them unless y
 have a reason not to. Reimplementing the contract by hand is where the subtle
 failures come from.
 
+### A `-slim` base image is missing libraries your wheels assume
+
+`pip install` succeeding proves nothing about whether the library can **load**. A wheel links
+against system shared objects that a slim image does not carry, and the failure arrives at
+*import* time inside the job — not at build time, where you would see it.
+
+Measured: an image built `FROM python:3.9-slim` installed LightGBM cleanly, pushed, registered,
+and then failed in a real batch transform job with
+
+```
+File ".../lightgbm/basic.py", line 265, in _load_lib
+OSError: libgomp.so.1: cannot open shared object file: No such file or directory
+```
+
+`libgomp` is the OpenMP runtime. **LightGBM and XGBoost both need it**, and a slim image omits it:
+
+```dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+The general rule, since the specific library changes with the framework: **import the package in
+the build, not just install it.** A `RUN python -c "import lightgbm"` line costs one layer and
+converts a failed inference job into a failed build, which is the cheaper place by a wide margin.
+An AWS DLC already carries these runtimes, which is a reason to start from one.
+
 ## Resolving the image — never assemble a URI
 
 ```python

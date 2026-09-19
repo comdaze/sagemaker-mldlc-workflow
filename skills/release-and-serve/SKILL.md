@@ -299,10 +299,32 @@ pushes a second image and leaves two digests both plausibly "the" one, which is 
 problem rather than a wasted build. Keep the verification — but put it where its own failure
 cannot overwrite the build's real outcome.
 
-**What held through that episode, and is worth copying.** Two hours of failures produced no false
-claim: the candidate stayed `readyForExecution=false` because `/ping` and CSV `/invocations` had
-not been exercised in the container yet, and the model package referenced the image **by digest**
-rather than by tag.
+**What held through that episode, and what did not.** Two hours of build failures produced no
+false claim of readiness: the candidate stayed `readyForExecution=false` with `/ping` and CSV
+`/invocations` still unexercised. But the model package was registered anyway, and the image in it
+could not load its own library — so "not marked ready" and "not used" turned out to be different
+things. The section below is that lesson.
+
+### Reference the image by digest, and exercise it before registering
+
+**`repo:tag` is the common form and SageMaker accepts it. Use `repo@sha256:…` anyway** — the
+`imageDigest` leg of the provenance triple above is the reason, and one run supplied the evidence
+better than the argument does. It produced **three digests in one repository inside two hours**:
+one pushed by a build that reported `FAILED`, one registered as version 1, and one built to fix a
+runtime library. Their tags were `codebuild-source-e6350439` and `codebuild-source-551a1e14` —
+distinguishable only by the part nobody reads. A tag reference would not have said which image the
+package contained, and version 1 contained the broken one.
+
+**Exercise the container before you register it, and treat that as a gate rather than a good
+habit.** That version 1 was registered, described, and sent to a real batch transform job before
+anything discovered that the image could not load its own library (`libgomp.so.1`, see
+`runtime-and-containers`). The run recorded the omission honestly — *smoke test was not required by
+`PLAN.md`* — which is exactly the failure mode this power keeps finding: the check existed as prose
+and prose does not run.
+
+Two calls answer it before an instance is billed: `/ping` must return 200, and `/invocations` must
+accept one real record in the payload format the transform job will send. A container that cannot
+import its own dependency fails both in under a second.
 
 ## Stage 12 — per-environment promotion
 
