@@ -229,6 +229,37 @@ A human comment on the approval is worth keeping, but persist it *beside* the
 governed audit record rather than inside it. The audit record's schema is the
 contract; free text is not part of it.
 
+## Stage 12 — build the image in the cloud, and grant the role all four families at once
+
+When the candidate needs its own container, **build it with CodeBuild.** Do not ask the user to
+install Docker: a run probed for it and got `zsh: command not found: docker`, exit 127, on a
+perfectly normal laptop. `runtime-and-containers` carries the route table and the buildspec
+details; this is what stage 12 adds.
+
+**The service role's permissions fail one at a time, and each one costs a whole build.** That run
+spent six builds, failing in `DOWNLOAD_SOURCE` (`CLIENT_ERROR`), then `BUILD`
+(`COMMAND_EXECUTION_ERROR`), then `UPLOAD_ARTIFACTS`, collecting one denial per round:
+
+```
+s3:GetObject            denied — cannot read the source zip
+s3:GetObjectVersion     denied — the bucket is versioned, so plain GetObject is not enough
+logs:CreateLogStream    denied — and this one is why the others were expensive
+```
+
+**Grant all four families before the first build**, because discovering them serially is the
+whole cost: read the source object *and* its versions, push to ECR (`ecr:GetAuthorizationToken`
+is registry-wide and separate from the repository actions), and write CloudWatch logs.
+
+**The logs permission is not optional tooling — without it a failure is unreadable.** CodeBuild
+reports `COMMAND_EXECUTION_ERROR` and nothing more; the reason is in the log stream the role was
+not allowed to create. A build that fails invisibly is worse than one that fails loudly, and the
+fix is a permission, not a retry. Grant `logs:CreateLogGroup`, `logs:CreateLogStream` and
+`logs:PutLogEvents` first, then debug.
+
+Two more that were paid for in that run: on a **versioned** bucket `s3:GetObject` alone is a
+denial, and in China every ARN is `arn:aws-cn:` — a policy written with `arn:aws:` matches nothing
+and the denial does not say why.
+
 ## Stage 12 — per-environment promotion
 
 After approval, promote per environment (`dev` → `test` → `prod`) with, for each:

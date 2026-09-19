@@ -228,6 +228,13 @@ ECR login in `pre_build` (`aws ecr get-login-password | docker login --username 
 --password-stdin`) against **the partition's own registry host** — `.amazonaws.com.cn` in
 China, which is the same never-assemble-a-URI rule as below.
 
+**And a third, in China: configure the package and image sources, or the build times out rather
+than failing.** `pypi.org` and Docker Hub are slow to unreachable from inside the partition —
+CodeBuild is inside it too. Prefer `public.ecr.aws` for the base image, set `PIP_INDEX_URL`
+(and `UV_DEFAULT_INDEX`, which uv reads instead) to a China mirror. The table of sources is in
+`ml-planning/references/china-baseline.md`; `FROM python:3.9-slim` with a bare `pip install` is
+the shape that stalls.
+
 **Check for Docker before writing a plan that needs it, not after.** `command -v docker` is
 one line, and its absence changes the stage's design rather than stopping it.
 

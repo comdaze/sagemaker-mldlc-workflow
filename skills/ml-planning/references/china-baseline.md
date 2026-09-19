@@ -50,6 +50,53 @@ monitoring as yours to build in every partition — see
 | Experiments, Model Cards, Lineage, Feature Store | measured — full CRUD |
 | SageMaker Python SDK v3 against this control plane | run — a real `ml.m5.large` XGBoost job in `cn-north-1` via `ModelTrainer` reached `Completed`, produced `model.tar.gz`, reported `train:rmse` 0.30005, billed 134 s |
 
+## Package and image sources: the default ones are not reachable enough
+
+**Anything that downloads during a build needs a China source configured, and the failure mode is
+a timeout rather than an error.** `pypi.org`, Docker Hub and the GitHub release assets many
+installers fetch are all slow to unreachable from inside the partition — including from CodeBuild
+and from a training job, which are in the partition too. A build that works on the author's
+laptop and stalls in `cn-north-1` is the normal outcome, not bad luck.
+
+This is not a convenience. A 20-minute timeout is charged as build minutes, and a partial layer
+cache makes the retry behave differently from the first attempt, which is how an afternoon goes.
+
+**pip** — set both, because a mirror that lacks a package must be allowed to fall through:
+
+```dockerfile
+ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
+    PIP_TRUSTED_HOST=mirrors.aliyun.com
+# or Tsinghua TUNA: https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+**uv** reads its own variable and ignores `PIP_INDEX_URL`:
+
+```dockerfile
+ENV UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple/
+```
+
+Also pin `UV_PYTHON_INSTALL_MIRROR` if uv is to fetch an interpreter — that download comes from
+GitHub, so it fails separately from the package index and the message points at Python, not at
+the network.
+
+**Base images** — in rough order of preference:
+
+| Source | Notes |
+|---|---|
+| **AWS Public ECR** (`public.ecr.aws/docker/library/python:3.11-slim`) | in-partition, no credentials, no rate limit — the first thing to try |
+| An AWS DLC or SageMaker image in the region's own registry | already the right shape for SageMaker; resolve it, never assemble the URI |
+| Aliyun ACR mirror (`registry.cn-hangzhou.aliyuncs.com`) | reliable; namespace differs from Docker Hub's |
+| DaoCloud (`docker.m.daocloud.io`) | a drop-in prefix for a Docker Hub reference |
+
+**`FROM python:3.9-slim` is the line to look for.** A real run's Dockerfile had exactly that plus
+a bare `pip install -r requirements.txt`, submitted to CodeBuild in `cn-northwest-1`. Its `BUILD`
+phase failed with `COMMAND_EXECUTION_ERROR` — and whether the mirrors were the cause is **not
+established**, because the same run lacked `logs:CreateLogStream` and could not read the log that
+would say. Both are worth fixing before the next attempt precisely because one hid the other.
+
+**Rewriting a Dockerfile's sources is a change to what gets installed.** Say which mirror you
+used and why, so the next person can tell a mirror problem from a code problem.
+
 ## No console is a workflow constraint, not a missing feature
 
 Studio has **no pages** for Experiments, Model Registry or AutoML in this
