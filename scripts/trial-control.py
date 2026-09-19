@@ -328,5 +328,26 @@ rc, out = run("report.py", "--plan", pg10, "--task", "10", "--state", ">",
 fails += not case("and [>] is refused: nothing was submitted", "REFUSED", rc, out,
                   "no remote execution to await")
 
+print("\n=== decisions are named in the directive, before the work ===")
+# The *ChosenBy refusals all fire when the report arrives -- after the jobs have run. A user asked
+# for the two tuning methods to be PUT to them instead of the run being caught not having asked.
+pd = D / "decides.md"
+DEC = GATED.replace("LAST_DONE: 2 @", "LAST_DONE: 7 @")
+for n in (4, 5, 6, 7):
+    DEC = DEC.replace(f"{n}. [ ] **T{n}**", f"{n}. [x] **T{n}**")
+DEC = DEC.replace("3. [x] **Register the dataset**",
+                  "3. [x] **Register the dataset** supplied: bucket=b, role=r")
+pd.write_text(DEC, encoding="utf-8")
+rc, out = run("next.py", pd)
+fails += not case("the stage 8 directive names the method choice", "OK", rc, out,
+                  "fixed-candidates")
+for needle, label in (("DECIDE FIRST", "it heads them as the user's"),
+                      ("END YOUR TURN", "and says to stop and wait"),
+                      ("strategyChosenBy", "including the strategy"),
+                      ("computeChosenBy", "and the compute behind the search")):
+    ok = needle in out
+    print(f"  {'PASS' if ok else 'FAIL'} {label}")
+    fails += not ok
+
 print(f"\n{'all passed' if not fails else str(fails) + ' failed'}")
 sys.exit(1 if fails else 0)

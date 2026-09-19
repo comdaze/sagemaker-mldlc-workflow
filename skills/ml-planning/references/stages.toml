@@ -81,6 +81,10 @@ mode = "inline"
 #
 # Set it where the input is something only the user can supply or authorise: stage 3 needs
 # infrastructure they own, stage 12 IS the release decision.
+# user_decides lists what has to be PUT TO THE USER before the stage's work, not merely recorded
+# afterwards. Every one of these already had a refusal on its `*ChosenBy` field -- but a refusal
+# fires when the report arrives, which is after the jobs have run and the money is spent. Naming
+# them in the directive is the difference between asking and being caught not having asked.
 [stages.3]
 name = "Register the dataset"
 owner = "data-pipeline"
@@ -89,6 +93,9 @@ requires = [1]
 mode = "inline"
 produces = "dataset-manifest.json"
 holds = "hard"
+user_decides = [
+  "the bucket, the role and the prefix — only the user can supply them; this stage holds hard",
+]
 # The gate for this stage is a separate program, so `verdict` cannot express it -- its answer
 # lives in an exit code, not in a field. report.py now RUNS it before accepting [x]. Until it
 # did, nothing required these checkers to have run at all: a run could write a manifest by
@@ -130,6 +137,9 @@ mode = "pipeline"
 produces = "processing-report.json"
 gate = { script = "data-pipeline/scripts/contract-check.py", needs = ["dataset-manifest.json", "processing-report.json"] }
 billable = true
+user_decides = [
+  "where the split boundaries fall and how long the test window is (splitChosenBy)",
+]
 
 # ---------------------------------------------------------------- phase 3: modelling
 
@@ -142,6 +152,10 @@ mode = "pipeline"
 produces = "baseline-report.json"
 gate = { script = "train-and-tune/scripts/training-check.py", needs = ["baseline-report.json"] }
 billable = true
+user_decides = [
+  "the primary metric (metricChosenBy)",
+  "the margin over the strongest baseline — the ship / do-not-ship line (marginChosenBy)",
+]
 
 [stages.7]
 name = "Training"
@@ -152,6 +166,9 @@ mode = "pipeline"
 produces = "training-report.json"
 gate = { script = "train-and-tune/scripts/training-check.py", needs = ["baseline-report.json", "training-report.json"] }
 billable = true
+user_decides = [
+  "the algorithm, with the alternatives named (algorithmChosenBy)",
+]
 
 [stages.8]
 name = "Tuning"
@@ -162,6 +179,11 @@ mode = "pipeline"
 produces = "tuning-report.json"
 gate = { script = "train-and-tune/scripts/training-check.py", needs = ["baseline-report.json", "training-report.json", "tuning-report.json"] }
 billable = true
+user_decides = [
+  "tuning method: fixed-candidates (a declared list) or amt-search (ranges plus maxJobs) — name the cost of each (methodChosenBy)",
+  "if amt-search, the strategy from Bayesian, Random, Hyperband, Grid (strategyChosenBy)",
+  "the compute behind the search, which runs maxJobs times over (computeChosenBy)",
+]
 
 # ---------------------------------------------------------------- phase 4: quality
 

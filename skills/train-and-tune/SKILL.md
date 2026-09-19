@@ -192,7 +192,14 @@ Tuning has two shapes and they differ by orders of magnitude in cost:
 | `amt-search` | a `searchSpace` of ranges plus `maxJobs` | whatever the budget allows, chosen by the service |
 
 **Put both to the user with the cost of each named, and record their answer as
-`methodChosenBy: user`.** A run picked fixed parallel candidates without asking and nothing
+`methodChosenBy: user`.** There are exactly two — a declared list of parameter sets, or an
+automatic search over ranges. Not tuning at all is a different thing: this stage is `CONDITIONAL`,
+so `[S]` with a reason covers it.
+
+**Ask before the work, not after.** `next.py`'s stage 8 directive now names all three decisions —
+method, strategy, compute — under `DECIDE FIRST`, and tells the run to end its turn and wait. The
+`*ChosenBy` refusals still hold, but they fire when the report arrives, by which time the jobs have
+run and the money is spent. A run picked fixed parallel candidates without asking and nothing
 objected — and worse, the checker demanded a `candidates` list, so the tool itself pushed
 toward one of the two answers. Both failures are now refusals: an undeclared `method`, and a
 `method` the user did not choose.

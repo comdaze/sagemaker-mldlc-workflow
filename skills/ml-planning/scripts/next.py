@@ -339,6 +339,7 @@ def choose(tasks, stages_doc, wanted: set[str], external: set[str], led: dict) -
             "execution": spec.get("execution"),
             "produces": spec.get("produces"),
             "satisfied_by": reqs,
+            "decides": spec.get("user_decides") or [],
             "why": f"lowest-numbered unsettled task whose prerequisites {reqs or '(none)'} "
                    "are all settled",
             "do": "do the work, then report it",
@@ -386,6 +387,16 @@ def render(d: dict, n: int) -> str:
             ("produces", d.get("produces"))]
     body = "\n".join(f"  {k+':':<11}{v}" for k, v in rows if v is not None)
     tail = f"\n  why:       {d['why']}\n  do:        {d['do']}"
+    decides = d.get("decides") or []
+    if decides:
+        # Named BEFORE the work, not refused after it. Every one of these already had a refusal on
+        # its `*ChosenBy` field -- but that fires when the report arrives, by which time the jobs
+        # have run and the money is spent. A user asked for this in exactly those terms: put the
+        # two tuning methods to them, rather than catching the run for not having asked.
+        tail += ("\n  DECIDE FIRST — the user's, not yours:\n"
+                 + "\n".join(f"    - {x}" for x in decides)
+                 + "\n  Present these, then END YOUR TURN and wait for a reply. Do not run a tool "
+                   "until they have answered: an approval inferred is an approval invented.")
     if d.get("task") is not None:
         tail += (f"\n  report:    python3 {HERE / 'report.py'} --task {d['task']} "
                  "--state <marker> [--artifact PATH]")
