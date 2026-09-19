@@ -161,6 +161,18 @@ now breaks a calculation, and it breaks it whatever the timestamp says. The limi
 knowing: rewriting the baseline report too would defeat this, so the two artefacts together
 are harder to fake than either alone — harder, not impossible.
 
+### The gate is not a job, and stage 10 is not billable
+
+**Do not start a Processing job for the gate.** It is arithmetic over two JSON files, and
+`stages.toml` declares stage 10 `mode = "inline"` with no `billable` flag for that reason. The
+bound belongs in a `ConditionStep` that reads stage 9's metric property directly
+(`ConditionLessThanOrEqualTo`), and `quality-gate.py` runs locally as the independent verifier of
+the recorded outcome. Nothing is submitted, so `[>]` does not apply either.
+
+This was once declared the other way, and a run paid for the mistake: it asked its user to
+authorise compute for the gate, was told none was needed, and re-designed the stage correctly. The
+declaration was wrong, not the run.
+
 ### Inside a Pipeline, route on the report rather than on a crash
 
 Exiting non-zero is what makes the refusal hold in a shell, so it is the default. But a

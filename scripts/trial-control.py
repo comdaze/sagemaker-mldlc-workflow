@@ -304,5 +304,29 @@ rc, out = run("report.py", "--plan", pb, "--task", "5", "--state", ">",
               "--execution", "arn:aws-cn:sagemaker:…:pipeline-execution/abc")
 fails += not case("but what it ran on must still be recorded", "REFUSED", rc, out, "--compute")
 
+print("\n=== the quality gate is arithmetic, not a job ===")
+# stage 10 was once declared pipeline-mode and billable, which made the loop demand a compute
+# authorisation before the gate could be reported. A run asked its user to authorise an instance
+# for comparing two numbers; the user said none was needed and the run was right.
+GATE10 = GATED.replace("10. [ ] **T10**", "10. [ ] **Gate**")
+for n in (6, 7, 8, 9):
+    GATE10 = GATE10.replace(f"{n}. [ ] **T{n}**", f"{n}. [x] **T{n}**")
+GATE10 = GATE10.replace("LAST_DONE: 2 @", "LAST_DONE: 9 @")
+# no COMPUTE line at all
+GATE10 = "\n".join(l for l in GATE10.splitlines() if not l.startswith("COMPUTE:")) + "\n"
+pg10 = D / "gate10.md"
+qgr = art / "quality-gate-report.json"
+qgr.write_text(json.dumps({"registrationAllowed": True, "status": "PASS"}), encoding="utf-8")
+
+pg10.write_text(GATE10, encoding="utf-8")
+rc, out = run("report.py", "--plan", pg10, "--task", "10", "--state", "x", "--artifact", qgr)
+fails += not case("stage 10 records without any compute authorisation", "OK", rc, out, "RECORDED")
+
+pg10.write_text(GATE10, encoding="utf-8")
+rc, out = run("report.py", "--plan", pg10, "--task", "10", "--state", ">",
+              "--execution", "arn:x")
+fails += not case("and [>] is refused: nothing was submitted", "REFUSED", rc, out,
+                  "no remote execution to await")
+
 print(f"\n{'all passed' if not fails else str(fails) + ' failed'}")
 sys.exit(1 if fails else 0)

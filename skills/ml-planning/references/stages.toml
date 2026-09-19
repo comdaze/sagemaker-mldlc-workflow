@@ -174,14 +174,21 @@ mode = "pipeline"
 produces = "evaluation-report.json"
 billable = true
 
+# mode is inline and there is no `billable` flag, and both were once wrong. The gate is arithmetic
+# over two JSON files -- starting an instance to compare two numbers is the wrong shape, and marking
+# it billable made `next.py` demand a COMPUTE authorisation before the stage could even be reported.
+# A run hit exactly that: it asked the user to authorise compute for the gate, the user said it was
+# not needed, and the run re-designed the stage as a Pipeline ConditionStep with quality-gate.py as
+# a local verifier. It was right, and it had to argue with this file to get there. The bound lives
+# in a ConditionStep that reads stage 9's metric property; nothing is submitted, so `[>]` -- which
+# is legal only on a pipeline-mode stage -- correctly does not apply either.
 [stages.10]
 name = "Quality gate"
 owner = "evaluate-and-gate"
 execution = "ALWAYS"
 requires = [9]
-mode = "pipeline"
+mode = "inline"
 produces = "quality-gate-report.json"
-billable = true
 # The most consequential one in the power, and it was the same story: a report that says
 # `registrationAllowed: false` could be recorded as [x] because nothing read the field. A
 # validation run did honour it, choosing [!] with a refusal reason and a live blocks list --

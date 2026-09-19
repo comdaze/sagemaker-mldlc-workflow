@@ -180,12 +180,19 @@ decision in a row. Two more from the audit stayed accounting rather than refusal
 hyperparameters, and which baselines to compute — because defaults are defensible there and tuning
 and the consistency check are the respective remedies.
 
-**Spending money is a second authorisation, separate from approving the plan.** Stages 5–10, 13 and
+**Spending money is a second authorisation, separate from approving the plan.** Stages 5–9, 13 and
 14 are declared `billable`: until the plan carries `COMPUTE: <type> x<count>, spot=<bool>,
 maxRuntimeMin=<int>, authorisedBy=user @ <ISO>`, `next.py` dispatches `authorise-compute` instead of
 the work and `report.py` refuses the state change. One line covers the run. A run reached stage 5,
 created a real Pipeline and started an `ml.m5.large` job with a 60-minute ceiling — approving a plan
 that says "processing runs as a ProcessingStep" is not approving that.
+
+**Stage 10 is deliberately not on that list, and it used to be.** The quality gate is arithmetic
+over two JSON files; marking it billable made the loop demand a compute authorisation before the
+stage could be reported at all. A run met exactly that, was told by its user that no instance was
+needed, and re-designed the stage as a `ConditionStep` reading stage 9's metric with
+`quality-gate.py` as a local verifier. It was right, and it had to argue with `stages.toml` to get
+there — the declaration was wrong, not the run.
 
 **Between refusal and accounting sits `APPROVED:`.** No execution work is dispatched until the
 plan carries `APPROVED: "<the user's words>" @ <ISO>`, and an agent can write that line itself —
