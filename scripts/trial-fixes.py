@@ -404,5 +404,18 @@ rc, out = contracts(MAN, report_for(filtered=120,
                                    filteredOutReason="target missing"), "filt")
 case("filtered rows with a reason pass, counts still reconciling", rc == 0, out)
 
+# A real run wrote this field as a dict, and `x in NULLISH` raises TypeError on an unhashable x.
+# contract-check crashed with a traceback instead of judging -- a gate that raises gates nothing,
+# and the traceback reads as a bug in the power rather than as anything about the data. All 39 of
+# those tests now route through is_blank(); this case is the one that found it.
+rc, out = contracts(MAN, report_for(filtered=120,
+                                   filteredOutReason={"rows": 120, "why": "target missing"}),
+                    "filt-dict")
+case("an unhashable reason is judged, not crashed on",
+     rc == 0 and "Traceback" not in out, out)
+rc, out = contracts(MAN, report_for(filtered=120, filteredOutReason={}), "filt-empty")
+case("an EMPTY container still counts as no reason",
+     rc != 0 and "filteredOutReason" in out and "Traceback" not in out, out)
+
 print(f"\n{'all passed' if not fails else f'{fails} failed'}")
 sys.exit(1 if fails else 0)

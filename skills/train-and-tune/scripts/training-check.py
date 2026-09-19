@@ -28,6 +28,22 @@ import sys
 from pathlib import Path
 
 NULLISH = {None, "", "null", "None", "nil", "undefined"}
+
+def is_blank(v: object) -> bool:
+    """True when a field carries no usable value, safe on unhashable ones.
+
+    `v in NULLISH` raises TypeError when v is a dict or a list, and a real artefact supplied a
+    dict where this expected a string -- the checker crashed rather than judging, which is the
+    one failure mode worse than a wrong verdict. A non-empty container is a value; an empty one
+    is not.
+    """
+    if isinstance(v, (dict, list, set, tuple)):
+        return not v
+    try:
+        return v in NULLISH
+    except TypeError:          # unhashable and not a container we named
+        return False
+
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$", re.I)
 
 # Metrics where a SMALLER value is better. Anything not listed is treated as
@@ -82,7 +98,7 @@ def check_baselines(b: dict, r: Report) -> tuple[str, float] | None:
         return None
 
     metric = b.get("metric")
-    if metric in NULLISH:
+    if is_blank(metric):
         r.fail("baselines", "no metric recorded; a score without its metric is a number.")
         return None
     if metric.lower() not in LOWER_IS_BETTER:
@@ -115,7 +131,7 @@ def check_baselines(b: dict, r: Report) -> tuple[str, float] | None:
     actual = min(scores, key=scores.get) if metric.lower() in LOWER_IS_BETTER \
         else max(scores, key=scores.get)
 
-    if claimed in NULLISH:
+    if is_blank(claimed):
         r.fail("baselines", "no strongest baseline named; the bound has to derive from one.")
     elif claimed not in scores:
         r.fail("baselines", f"strongest is {claimed!r}, which is not among the computed set.")
@@ -224,7 +240,7 @@ def check_training(t: dict, r: Report) -> None:
             r.fail("training", f"training report is missing {field!r} -- {why}.")
 
     d = t.get("imageDigest")
-    if d not in NULLISH and not DIGEST_RE.match(str(d)):
+    if not is_blank(d) and not DIGEST_RE.match(str(d)):
         r.fail(
             "training",
             f"imageDigest {d!r} is not a sha256 digest. A tag is not a pin: ':latest' "
@@ -239,18 +255,18 @@ def check_training(t: dict, r: Report) -> None:
                 "exist in a training job; if the code has one, that is a defect whether "
                 "or not it is currently pointed anywhere.",
             )
-        if dig in NULLISH or not DIGEST_RE.match(str(dig)):
+        if is_blank(dig) or not DIGEST_RE.match(str(dig)):
             r.fail("training", f"input channel {ch!r} digest {dig!r} is not a sha256 digest.")
 
     art = t.get("modelArtefact")
-    if not art or (isinstance(art, dict) and art.get("uri") in NULLISH):
+    if not art or (isinstance(art, dict) and is_blank(art.get("uri"))):
         r.fail(
             "training",
             "training report records no model artefact. Success is exit code AND "
             "artefact: a job that finishes cleanly and writes no model is a failure "
             "reporting as a success.",
         )
-    elif isinstance(art, dict) and art.get("versionId") in NULLISH:
+    elif isinstance(art, dict) and is_blank(art.get("versionId")):
         r.fail(
             "training",
             "model artefact has no object version. A path can be overwritten, so the "
@@ -290,7 +306,7 @@ def check_algorithm(d: dict, r: Report) -> None:
     needing a signature.
     """
     algo = d.get("algorithm")
-    if algo in NULLISH:
+    if is_blank(algo):
         r.fail(
             "training",
             "no algorithm recorded. It decides what the model can express, what the serving "
@@ -325,7 +341,7 @@ def check_algorithm(d: dict, r: Report) -> None:
 
     mode = d.get("runtimeMode")
     KNOWN = {"built-in", "byos", "extended", "byoc", "byom"}
-    if mode in NULLISH:
+    if is_blank(mode):
         r.note(
             "no runtimeMode recorded -- not a violation, but built-in, BYOS, extended, BYOC and "
             "BYOM differ in what someone has to maintain, and that is worth stating once."
@@ -509,7 +525,7 @@ def check_tuning(t: dict, r: Report) -> None:
                 "stands in for a candidate list: declared before running, so the space "
                 "cannot grow once a favourite appears.",
             )
-        if t.get("maxJobs") in NULLISH:
+        if is_blank(t.get("maxJobs")):
             r.fail(
                 "tuning",
                 "method is amt-search and no maxJobs is recorded. An unbounded search has "
@@ -556,7 +572,7 @@ def check_tuning(t: dict, r: Report) -> None:
             "exceeded its declared space or stopped early without recording why.",
         )
 
-    if t.get("budget") in NULLISH:
+    if is_blank(t.get("budget")):
         r.fail(
             "tuning",
             "no budget recorded. A declared budget ends the search at a point chosen "

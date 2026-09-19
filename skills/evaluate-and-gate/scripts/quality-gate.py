@@ -29,6 +29,22 @@ from pathlib import Path
 
 NULLISH = {None, "", "null", "None", "nil", "undefined"}
 
+def is_blank(v: object) -> bool:
+    """True when a field carries no usable value, safe on unhashable ones.
+
+    `v in NULLISH` raises TypeError when v is a dict or a list, and a real artefact supplied a
+    dict where this expected a string -- the checker crashed rather than judging, which is the
+    one failure mode worse than a wrong verdict. A non-empty container is a value; an empty one
+    is not.
+    """
+    if isinstance(v, (dict, list, set, tuple)):
+        return not v
+    try:
+        return v in NULLISH
+    except TypeError:          # unhashable and not a container we named
+        return False
+
+
 LOWER_IS_BETTER = {
     "mae", "mse", "rmse", "mape", "smape", "logloss", "log_loss", "brier",
     "crps", "pinball", "wape", "medae", "msle",
@@ -53,7 +69,7 @@ def digest(path: Path) -> str:
 
 
 def parse_ts(v) -> datetime | None:
-    if v in NULLISH:
+    if is_blank(v):
         return None
     try:
         return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
@@ -132,7 +148,7 @@ def check_derivation(contract: dict, cpath: Path, bound: float, metric: str,
                 "make the bound reproducible.")
 
     art = d.get("artifact")
-    if art in NULLISH:
+    if is_blank(art):
         raise Refusal("derivedFrom names no artifact, so there is nothing to recompute "
                       "the bound from.")
     path = Path(art)
@@ -147,7 +163,7 @@ def check_derivation(contract: dict, cpath: Path, bound: float, metric: str,
     src = load(path)
     baselines = src.get("baselines") or src.get("naive") or {}
     name = d.get("baseline")
-    if name in NULLISH:
+    if is_blank(name):
         raise Refusal("derivedFrom names no baseline within the artifact.")
     if name not in baselines:
         raise Refusal(
@@ -188,7 +204,7 @@ def apply_gate(contract: dict, ev: dict, cpath: Path, epath: Path) -> dict:
 
     metric = contract.get("metric")
     bound = contract.get("bound")
-    if metric in NULLISH:
+    if is_blank(metric):
         raise Refusal("the contract names no metric; a bound without one is a number.")
     if not isinstance(bound, (int, float)):
         raise Refusal(f"the contract's bound {bound!r} is not a number.")
@@ -238,7 +254,7 @@ def apply_gate(contract: dict, ev: dict, cpath: Path, epath: Path) -> dict:
         recorded = {
             o.get("metric")
             for o in (ev.get("metricsOmitted") or [])
-            if isinstance(o, dict) and o.get("reason") not in NULLISH
+            if isinstance(o, dict) and not is_blank(o.get("reason"))
         }
         unexplained = missing - recorded
         if unexplained:
@@ -268,7 +284,7 @@ def apply_gate(contract: dict, ev: dict, cpath: Path, epath: Path) -> dict:
         baseline_note = None
 
     recorded_verdict = ev.get("verdict")
-    if recorded_verdict not in NULLISH and str(recorded_verdict).upper() != verdict:
+    if not is_blank(recorded_verdict) and str(recorded_verdict).upper() != verdict:
         raise Refusal(
             f"the evaluation report records verdict {recorded_verdict!r} but the bound "
             f"gives {verdict}. The gate computes the verdict; a disagreement means one of "

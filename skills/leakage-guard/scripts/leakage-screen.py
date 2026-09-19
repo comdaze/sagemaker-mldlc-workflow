@@ -45,6 +45,22 @@ from pathlib import Path
 
 NULLISH = {"", "na", "nan", "null", "none", "-", "?"}
 
+def is_blank(v: object) -> bool:
+    """True when a field carries no usable value, safe on unhashable ones.
+
+    `v in NULLISH` raises TypeError when v is a dict or a list, and a real artefact supplied a
+    dict where this expected a string -- the checker crashed rather than judging, which is the
+    one failure mode worse than a wrong verdict. A non-empty container is a value; an empty one
+    is not.
+    """
+    if isinstance(v, (dict, list, set, tuple)):
+        return not v
+    try:
+        return v in NULLISH
+    except TypeError:          # unhashable and not a container we named
+        return False
+
+
 
 class Refusal(Exception):
     """The screen cannot be run, as distinct from a candidate being refused."""
@@ -118,7 +134,7 @@ def numeric_pairs(a: list[str], b: list[str]) -> tuple[list[float], list[float]]
     xs: list[float] = []
     ys: list[float] = []
     for u, v in zip(a, b):
-        if u.strip().lower() in NULLISH or v.strip().lower() in NULLISH:
+        if is_blank(u.strip().lower()) or is_blank(v.strip().lower()):
             continue
         try:
             xs.append(float(u))
@@ -129,7 +145,7 @@ def numeric_pairs(a: list[str], b: list[str]) -> tuple[list[float], list[float]]
 
 
 def as_binary(vals: list[str]) -> list[int] | None:
-    seen = sorted({v.strip() for v in vals if v.strip().lower() not in NULLISH})
+    seen = sorted({v.strip() for v in vals if not is_blank(v.strip().lower())})
     if len(seen) != 2:
         return None
     lo, hi = seen
@@ -226,7 +242,7 @@ def screen_one(
         pairs = [
             (float(v), l)
             for v, l in zip(values, binary)
-            if v.strip().lower() not in NULLISH and _is_num(v)
+            if not is_blank(v.strip().lower()) and _is_num(v)
         ]
         if pairs:
             a = auc([p for p, _ in pairs], [l for _, l in pairs])
@@ -257,7 +273,7 @@ def build_probe(target: list[str], seed: int = 0) -> tuple[list[str], str] | Non
     Both are ~the target, so any working screen must refuse them.
     """
     rng = random.Random(seed)
-    nums = [float(v) for v in target if v.strip().lower() not in NULLISH and _is_num(v)]
+    nums = [float(v) for v in target if not is_blank(v.strip().lower()) and _is_num(v)]
     if len(nums) >= 3:
         mean = sum(nums) / len(nums)
         var = sum((x - mean) ** 2 for x in nums) / len(nums)
@@ -265,7 +281,7 @@ def build_probe(target: list[str], seed: int = 0) -> tuple[list[str], str] | Non
         if sd > 0:
             out = []
             for v in target:
-                if v.strip().lower() in NULLISH or not _is_num(v):
+                if is_blank(v.strip().lower()) or not _is_num(v):
                     out.append("")
                 else:
                     out.append(str(float(v) + rng.gauss(0, sd * 0.01)))
@@ -273,11 +289,11 @@ def build_probe(target: list[str], seed: int = 0) -> tuple[list[str], str] | Non
 
     binary = as_binary(target)
     if binary is not None:
-        seen = sorted({v.strip() for v in target if v.strip().lower() not in NULLISH})
+        seen = sorted({v.strip() for v in target if not is_blank(v.strip().lower())})
         lo, hi = seen
         out = []
         for v, l in zip(target, binary):
-            if v.strip().lower() in NULLISH:
+            if is_blank(v.strip().lower()):
                 out.append("")
             elif rng.random() < 0.01:
                 out.append(lo if l == 1 else hi)

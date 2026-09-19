@@ -29,6 +29,22 @@ from pathlib import Path
 # through, because it is truthy and serialises without complaint.
 NULLISH = {None, "", "null", "None", "nil", "undefined"}
 
+def is_blank(v: object) -> bool:
+    """True when a field carries no usable value, safe on unhashable ones.
+
+    `v in NULLISH` raises TypeError when v is a dict or a list, and a real artefact supplied a
+    dict where this expected a string -- the checker crashed rather than judging, which is the
+    one failure mode worse than a wrong verdict. A non-empty container is a value; an empty one
+    is not.
+    """
+    if isinstance(v, (dict, list, set, tuple)):
+        return not v
+    try:
+        return v in NULLISH
+    except TypeError:          # unhashable and not a container we named
+        return False
+
+
 REQUIRED_MANIFEST = ("uri", "versionId", "etag", "digest", "sampleCount")
 
 DIGEST_RE = re.compile(r"^(sha256:)?[0-9a-f]{64}$", re.I)
@@ -75,7 +91,7 @@ def check_manifest(m: dict, r: Report) -> None:
             )
 
     vid = m.get("versionId")
-    if field_present(m, "versionId") and vid in NULLISH:
+    if field_present(m, "versionId") and is_blank(vid):
         r.fail(
             "identity",
             f"versionId is {vid!r}. A bucket without versioning cannot issue one, and "
@@ -84,7 +100,7 @@ def check_manifest(m: dict, r: Report) -> None:
         )
 
     digest = m.get("digest")
-    if field_present(m, "digest") and digest not in NULLISH:
+    if field_present(m, "digest") and not is_blank(digest):
         if not DIGEST_RE.match(str(digest)):
             r.fail(
                 "identity",
@@ -141,7 +157,7 @@ def check_scope(m: dict, r: Report) -> None:
         )
         return
 
-    if scope.get("included") in NULLISH:
+    if is_blank(scope.get("included")):
         r.fail("scope", "scope records no 'included' -- say what the dataset covers, in the "
                         "terms a reader would use: a date range, a set of sites, a population.")
 
@@ -155,9 +171,9 @@ def check_scope(m: dict, r: Report) -> None:
         )
     else:
         for i, e in enumerate(excluded):
-            if not isinstance(e, dict) or e.get("what") in NULLISH:
+            if not isinstance(e, dict) or is_blank(e.get("what")):
                 r.fail("scope", f"excluded[{i}] does not say WHAT was excluded.")
-            elif e.get("reason") in NULLISH:
+            elif is_blank(e.get("reason")):
                 r.fail(
                     "scope",
                     f"excluded[{i}] ({e.get('what')!r}) records no reason. A range dropped "
@@ -200,7 +216,15 @@ def check_split_decision(rep: dict, r: Report) -> None:
     # argument for writing one per rule rather than one per feature.
     dropped = rep.get("filteredOutCount")
     if isinstance(dropped, (int, float)) and dropped > 0:
-        if rep.get("filteredOutReason") in NULLISH:
+        # `in NULLISH` raises TypeError on an unhashable value, and a real run put a dict here --
+        # `filteredOutReason: {rows: 12, why: "..."}` is a reasonable thing for someone to write.
+        # The checker crashed instead of judging, which is worse than a wrong verdict: a gate that
+        # raises gates nothing, and the traceback reads as a bug in the power rather than as
+        # anything about the data. Normalise first, then test.
+        reason = rep.get("filteredOutReason")
+        if isinstance(reason, (dict, list)):
+            reason = json.dumps(reason, ensure_ascii=False) if reason else ""
+        if is_blank(reason):
             r.fail(
                 "boundaries",
                 f"{dropped} rows were filtered out and no filteredOutReason is recorded. The "
@@ -360,7 +384,7 @@ def check_outputs(rep: dict, r: Report) -> None:
             r.fail("outputs", f"malformed outputs entry: {o!r}")
             continue
         d = o.get("digest")
-        if d in NULLISH:
+        if is_blank(d):
             r.fail("outputs", f"output {o['name']!r} has no digest.")
         elif not DIGEST_RE.match(str(d)):
             r.fail(
