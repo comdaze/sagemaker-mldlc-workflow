@@ -62,8 +62,8 @@ other blocker — because what it waits on is something only the user can supply
    started an `ml.m5.large` job with a 60-minute ceiling; approving a plan that says "processing
    runs as a ProcessingStep" is not approving that.
 
-Skipping 1 or 4 is what this list prevents: a plan that never recorded its partition, or a
-run that decided for itself that it had permission. **The four `Part N` headings below are this
+Skipping 1 or 4 is what this list prevents: a plan that never recorded its partition, or a run
+that decided for itself that it had permission. **The four `Part N` headings below are this
 skill's own workflow, not subdivisions of a stage** — Part 1 spans stages 1 and 2, and Parts 2 to
 4 are not stages at all. In `leakage-guard`, which owns one stage, `Part` *does* mean a step
 inside it: same word, different containment.
@@ -150,10 +150,9 @@ and write a one-task plan rather than skipping `PLAN.md`.
 
 ## Part 3: The stage catalogue
 
-Ordering is a prerequisite chain, and the chain is **declared** in
-`references/stages.toml` rather than inferred from numbering — stage 13 requires 10 and not
-12, and no rule based on integers knows that. Read that file for the authoritative list;
-what follows is the shape of it.
+Ordering is a prerequisite chain, and the chain is **declared** in `references/stages.toml` rather
+than inferred from numbering — stage 13 requires 10 and not 12, and no rule based on integers knows
+that. Read that file for the authoritative list; what follows is the shape of it.
 
 **Sixteen stages, eight skills.** Stages 1–2 frame and check the environment
 (`ml-planning`); 3–5 register and process data (`data-pipeline`, with 4 owned by
@@ -438,12 +437,11 @@ rules govern it.
 | **Fixable but expensive** — a quota, a role, another account | Present the choice, with each path's cost named. |
 | **Not fixable here** — a service absent from the partition | Substitute, and say plainly what was lost. |
 
-**A prompt that did not name the platform is not an exemption.** The test is not "did the
-user say SageMaker" but *can the environment support this power's execution target*.
-
-**Name which layer you are delivering.** The methodology travels; the execution does not. A
-reduced deliverable is not automatically wrong — failing to say which layer it is, is. **A
-refusal may stop the work; it may not quietly change what the work was.**
+**A prompt that did not name the platform is not an exemption.** The test is not "did the user say
+SageMaker" but *can the environment support this power's execution target*. **Name which layer you
+are delivering:** the methodology travels, the execution does not. A reduced deliverable is not
+automatically wrong — failing to say which layer it is, is. **A refusal may stop the work; it may
+not quietly change what the work was.**
 
 `references/asking-and-blocking.md` has the message shape and what each rule cost to
 discover. Read it before writing the message.
