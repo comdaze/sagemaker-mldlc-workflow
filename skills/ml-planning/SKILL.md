@@ -63,11 +63,10 @@ other blocker — because what it waits on is something only the user can supply
    runs as a ProcessingStep" is not approving that.
 
 Skipping 1 or 4 is what this list prevents: a plan that never recorded its partition, or a
-run that decided for itself that it had permission.
-
-**The four `Part N` headings below are this skill's own workflow, not subdivisions of a stage** —
-Part 1 spans stages 1 and 2, and Parts 2 to 4 are not stages at all. In `leakage-guard`, which
-owns exactly one stage, `Part` *does* mean a step inside it: same word, different containment.
+run that decided for itself that it had permission. **The four `Part N` headings below are this
+skill's own workflow, not subdivisions of a stage** — Part 1 spans stages 1 and 2, and Parts 2 to
+4 are not stages at all. In `leakage-guard`, which owns one stage, `Part` *does* mean a step
+inside it: same word, different containment.
 
 ## Part 1: Establish the partition, the SDK, and the target
 
