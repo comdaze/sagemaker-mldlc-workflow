@@ -129,5 +129,5 @@ In order, because the first two often make the rest unnecessary:
 3. **Then tune capacity** — depth, width, regularisation.
 4. **Only then tune the small numbers.**
 
-A search that starts at step 4 spends real money establishing that step 4 does not matter
+A search that starts at item 4 spends real money establishing that item 4 does not matter
 much.

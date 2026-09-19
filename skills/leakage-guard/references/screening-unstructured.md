@@ -1,6 +1,6 @@
 # Screening unstructured inputs
 
-The checks for step 3 when the input is an image, a document, an audio clip or a
+The checks for part 3 when the input is an image, a document, an audio clip or a
 derived representation. `SKILL.md` says what a refusal is and that it does not
 proceed; this says what to measure.
 

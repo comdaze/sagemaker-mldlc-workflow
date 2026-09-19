@@ -1,6 +1,6 @@
 # Screening scalar inputs
 
-The statistics and bounds for step 3 when a candidate input is a single number per
+The statistics and bounds for part 3 when a candidate input is a single number per
 sample — a table column, a computed aggregate, a third-party score. `SKILL.md` says
 what a refusal is and that it does not proceed; this says what to measure.
 

@@ -42,7 +42,7 @@ Ask only when the data is *already* in S3 and you cannot reach it — and then a
 one thing you cannot derive, its location, not the identity fields you can read once you
 have it.
 
-The same test applies elsewhere: a region comes from step 1, an input list comes from
+The same test applies elsewhere: a region comes from part 1, an input list comes from
 the dataset's own metadata, a schema comes from the source. **Never hand-assemble an ARN
 either** — read `Role.Arn` from `get-role`, because a role with an IAM path does not
 exist at `role/<name>`, and SageMaker's error for that reads like a trust-policy problem.
@@ -131,7 +131,7 @@ direction has a real price.
 
 ## Making the skill load unconditionally
 
-`SKILL.md` step 1 offers this and lets the user decide. It writes one file into their
+`SKILL.md` part 1 offers this and lets the user decide. It writes one file into their
 project and is not a prerequisite for any work:
 
 ```bash

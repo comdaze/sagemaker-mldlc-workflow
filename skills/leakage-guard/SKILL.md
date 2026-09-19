@@ -16,15 +16,16 @@ little and you ship an offline score that production will not reproduce — and 
 failure is the expensive one, because every structural check passes on the way out.
 
 **This body decides; the references measure.** What counts as a refusal is here and
-holds in every modality. Which statistic implements it is in `references/`, and step 3
+holds in every modality. Which statistic implements it is in `references/`, and part 3
 says which one to read.
 
-**This skill is stage 4 of the sixteen, and its own steps are numbered separately.** The six
-`Step N` headings below are internal to the screen — step 6 is not stage 6. The distinction is
-worth the sentence because both numbering systems live in this power, and a reader arriving from
-`next.py`'s `stage: 4` directive has no other way to tell them apart.
+**This skill is stage 4 of the sixteen, and its own sections are lettered `Part N` for that
+reason.** They used to be `Step N`, which read as a second stage numbering inside a skill that
+already *is* a stage — and one of them, `Step 6`, sat in a power that also has a stage 6. `Part`
+collides with nothing. AWS's own `ProcessingStep` and `ConditionStep` keep their names: those are
+identifiers, not ours to rename.
 
-## Step 1: name the prediction time
+## Part 1: name the prediction time
 
 "Prediction time" is domain-defined, and it is a decision, not a discovery. Write it
 in the contract (`spec.data.predictionTime`) before selecting a single feature.
@@ -44,9 +45,9 @@ wanted, they are two contracts. And prediction time is not the same as *training
 time: the training set is assembled long after the fact, which is exactly why the
 data has values that were not available then.
 
-## Step 2: sort every candidate into three tiers
+## Part 2: sort every candidate into three tiers
 
-Only the third is a refusal. Sorting is a hypothesis to be tested in step 3, not a
+Only the third is a refusal. Sorting is a hypothesis to be tested in part 3, not a
 conclusion.
 
 | Tier | What it is | Verdict |
@@ -70,7 +71,7 @@ Reserve refusal for what you have positive reason to believe is late.
 Anything in tier 3 that is genuinely needed becomes a **new input at a later
 prediction time**, not an exception to the rule.
 
-## Step 3: screen every candidate against the target — this is a refusal
+## Part 3: screen every candidate against the target — this is a refusal
 
 Sorting by name is a hypothesis, and **names lie**. Run a screen that costs one pass
 over the data, and treat it as a gate rather than a diagnostic.
@@ -102,7 +103,7 @@ implements each one differs; the *consequence* does not.
    quality gate.** If one input already nearly clears the bar the model must clear, the
    model is not the thing being measured.
 3. **An input whose availability at prediction time cannot be established, and which
-   there is positive reason to believe is late.** Tier 3 of step 2, mechanically.
+   there is positive reason to believe is late.** Tier 3 of part 2, mechanically.
 
 An input that nearly *is* the target is either the target under another name or
 computed from it. There is no third explanation worth training on, and no naming
@@ -204,7 +205,7 @@ its own quality gate by an order of magnitude has usually found a leak rather th
 signal, and that ratio makes it visible immediately instead of after deployment.
 `baseline-first` is the stage that makes this unavoidable.
 
-## Step 4: split hygiene — the other family
+## Part 4: split hygiene — the other family
 
 Point-in-time correctness governs *which inputs*. This governs *which samples*, and
 it leaks just as thoroughly with a perfectly admissible input set.
@@ -234,7 +235,7 @@ key for near-duplicates, both in `references/screening-unstructured.md`. The tem
 assertions, including the lag-feature one that is usually skipped, are in
 `references/temporal-sources.md`.
 
-## Step 5: what goes in the contract
+## Part 5: what goes in the contract
 
 ```yaml
 spec:
@@ -269,7 +270,7 @@ when the new arrival is an actual. `forbidden` carries patterns as well as names
 (`*_actual`, `*_final`, `resolution_*`, and whatever the domain's own post-hoc naming
 is), because the next thing to leak has not been named yet.
 
-## Step 6: record what you could not verify
+## Part 6: record what you could not verify
 
 Tier 2 rests on an assumption. Say so, in the plan, once per assumption — what is
 assumed, what enforces it structurally anyway, and what specifically remains

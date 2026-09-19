@@ -65,7 +65,7 @@ other blocker — because what it waits on is something only the user can supply
 Skipping 1 or 4 is what this list prevents: a plan that never recorded its partition, or a
 run that decided for itself that it had permission.
 
-## Step 1: Establish the partition, the SDK, and the target
+## Part 1: Establish the partition, the SDK, and the target
 
 Three facts gate everything, and two of them are cheap enough that guessing is
 indefensible.
@@ -111,7 +111,7 @@ measured at two activations in four attempts without it, three in three with it.
 take it, and do not make it a gate: a workflow that will not start until it has installed
 itself is worse than a coin flip.
 
-## Step 2: Pick a scope preset
+## Part 2: Pick a scope preset
 
 Ask only if the request does not already make it obvious.
 
@@ -145,7 +145,7 @@ A single stage on its own is also legitimate — "just run a batch transform",
 "just build the processing job". Say which stage it is, name its prerequisites,
 and write a one-task plan rather than skipping `PLAN.md`.
 
-## Step 3: The stage catalogue
+## Part 3: The stage catalogue
 
 Ordering is a prerequisite chain, and the chain is **declared** in
 `references/stages.toml` rather than inferred from numbering — stage 13 requires 10 and not
@@ -189,7 +189,7 @@ column, used directly as the prediction with no model at all, scored 14.2, again
 naive baselines of 182.7 and 137.1. Stating them first makes an implausible result
 visible on sight instead of six months later.
 
-## Step 4: Write the plan down
+## Part 4: Write the plan down
 
 Present the numbered plan for approval, then write it to `PLAN.md`. The file is the
 state of the work, not a summary of it — a later session must resume from it without
@@ -388,7 +388,7 @@ skill. `references/pipeline-composition.md` has each with its reasoning.
   broken, and it stalls a plan on a question nobody can answer.
 - **Every blocking question carries an executable default.**
 - **Surface the partition constraint before planning, not after.** Read
-  `references/china-baseline.md` and resolve it in step 1.
+  `references/china-baseline.md` and resolve it in part 1.
 - **Do not plan capabilities no skill here covers.** A plan that promises what nothing
   implements is worse than a short plan.
 - **Do not ask what the repository already answers.** Check for an existing contract,
@@ -407,7 +407,7 @@ has handed over a task. Two rules, with the worked examples in
 
 **Never ask for a value your own next action would produce.** Before asking for
 anything, check whether the answer is an *output* of a step you are supposed to take. A
-region comes from step 1, an input list comes from the dataset's own metadata, an object
+region comes from part 1, an input list comes from the dataset's own metadata, an object
 version comes from the upload that creates it. Seen twice in real runs: asking the user
 for identity fields that cannot exist until the agent has done the upload itself.
 

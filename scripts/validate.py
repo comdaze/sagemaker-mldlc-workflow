@@ -231,6 +231,7 @@ def check_stage_catalogue() -> None:
                 )
 
     check_stages_are_named(stages)
+    check_step_stage_vocabulary()
 
 
 def check_import_cleanliness() -> None:
@@ -501,6 +502,29 @@ def check_regressions(skip: bool) -> None:
         if ".git" not in cache.parts:
             shutil.rmtree(cache, ignore_errors=True)
 
+
+
+def check_step_stage_vocabulary() -> None:
+    """`Step N` must not be a heading, because `Stage N` is this power's numbered sequence.
+
+    The word carried four meanings and only one collided. AWS's `ProcessingStep` and
+    `ConditionStep` are identifiers and stay. Generic prose -- "one step at a time" -- is
+    unambiguous and stays. What had to go was a second NUMBERED sequence: `## Step 1..6` inside
+    leakage-guard, which IS stage 4, and `## Step 3: The stage catalogue` in ml-planning, a step
+    whose subject was stages. Those are `Part N` now.
+
+    The check is deliberately narrow -- headings only, and only a numbered one. A rule that
+    flagged every use of the word would fire on 24 AWS identifiers and 62 harmless sentences, and
+    a check that noisy gets silenced rather than heeded.
+    """
+    pattern = re.compile(r"^#{1,6}\s.*\b[Ss]tep\s+\d+", re.M)
+    for p in sorted((ROOT / "skills").rglob("*.md")):
+        for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+            if pattern.match(line):
+                fail(f"{p.relative_to(ROOT)}:{i} heads a section with a numbered 'Step'. "
+                     "`Stage N` is this power's numbered sequence and a second one reads as it -- "
+                     "leakage-guard is stage 4 and once numbered its own sections 1 to 6. Use "
+                     "`Part N`. AWS's *Step class names are identifiers and are not affected.")
 
 
 def check_stages_are_named(stages: dict) -> None:
