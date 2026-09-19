@@ -260,6 +260,50 @@ Two more that were paid for in that run: on a **versioned** bucket `s3:GetObject
 denial, and in China every ARN is `arn:aws-cn:` — a policy written with `arn:aws:` matches nothing
 and the denial does not say why.
 
+**Check the project as well as the role, because there are two independent reasons you cannot read
+a build.** That run granted the permission and still saw nothing: the project itself carried
+
+```json
+"logsConfig": {"cloudWatchLogs": {"status": "DISABLED"}}
+```
+
+Fixing either one alone leaves you blind and the symptom is identical both ways. Confirm with
+`codebuild batch-get-projects` before spending a build on a question the logs would have answered.
+
+### The build reads the zip, not your working tree
+
+With an S3 source, `docker build` runs against what was **packaged**, so an edit that is not
+re-zipped and re-uploaded does not exist. The characteristic failure:
+
+```
+ERROR: failed to solve: failed to compute cache key: failed to calculate checksum
+of ref …::"/inference.py": not found
+```
+
+That run hit it and had to diff its local `Dockerfile` against the packaged copy to see why. **The
+tell is an identical error after a fix that should have changed it** — that is a stale archive, not
+a stubborn bug. Regenerate the zip in the same step that submits the build so the two cannot
+drift, and make the archive's internal layout match the `COPY` paths rather than adjusting one to
+the other by trial.
+
+### A FAILED build may have already pushed the image
+
+The most expensive misreading available here. That run's `post_build` verified its own push with
+`aws ecr describe-images`; the role lacked `ecr:DescribeImages`, the command exited 254, and
+CodeBuild reported the build `FAILED` — **after the push in `build` had already succeeded.** The
+image was in ECR the whole time.
+
+Two consequences. Grant ECR **read** alongside push, because a policy that can write and not read
+turns a working build into a failed one. And **look in ECR before resubmitting**: a blind retry
+pushes a second image and leaves two digests both plausibly "the" one, which is a provenance
+problem rather than a wasted build. Keep the verification — but put it where its own failure
+cannot overwrite the build's real outcome.
+
+**What held through that episode, and is worth copying.** Two hours of failures produced no false
+claim: the candidate stayed `readyForExecution=false` because `/ping` and CSV `/invocations` had
+not been exercised in the container yet, and the model package referenced the image **by digest**
+rather than by tag.
+
 ## Stage 12 — per-environment promotion
 
 After approval, promote per environment (`dev` → `test` → `prod`) with, for each:

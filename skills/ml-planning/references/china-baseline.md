@@ -133,6 +133,30 @@ used and why, so the next person can tell a mirror problem from a code problem. 
 not a guarantee of the same digest as upstream — pin by digest for anything that must be
 reproducible, exactly as `runtime-and-containers` says for the AWS registries.
 
+### When no index works: vendor the wheels into the build context
+
+The last resort, and a real run reached for it: download the wheels on a machine that *can* reach
+an index, ship them inside the source archive, and install with `--no-index --find-links`.
+
+```bash
+pip download --no-deps --only-binary=:all: \
+    --platform manylinux_2_17_x86_64 --python-version 39 \
+    -d inference/wheels -r requirements.txt
+# then, in the Dockerfile:
+#   COPY wheels /tmp/wheels
+#   RUN pip install --no-index --find-links=/tmp/wheels -r requirements.txt
+```
+
+**`--platform` and `--python-version` describe the image, not your laptop**, and getting them
+wrong is the whole trap: the download succeeds, the archive looks right, and the install fails
+inside the build with a message about no matching distribution. `--only-binary=:all:` is what makes
+that mismatch surface at download time instead. Check the interpreter version in the base image
+rather than assuming it matches the one you developed against.
+
+This trades a network dependency for a maintenance one — the vendored set is now yours to keep
+current, and it is invisible in `requirements.txt`. Prefer a mirror; use this when a package is not
+on one.
+
 ## No console is a workflow constraint, not a missing feature
 
 Studio has **no pages** for Experiments, Model Registry or AutoML in this
