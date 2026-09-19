@@ -19,6 +19,64 @@ user is, is worse than one that says so.
 
 Version 0.1.0. Eight skills cover all sixteen stages. See [Skills](#skills).
 
+## Quick start
+
+**1. Import the power, then add one steering line.** Kiro → Powers → **Add Custom Power** →
+**Import power from GitHub** (paste the repository URL) or **Import power from a folder**. Choose
+**Vibe** when asked.
+
+The steering line is not optional polish. Skill activation is a model judgement, and a plain
+request activated `ml-planning` about **one time in two** on the test machine. A project steering
+file was measured 3/3:
+
+```bash
+mkdir -p .kiro/steering
+cp ~/.kiro/powers/installed/sagemaker-mldlc-workflow/steering/getting-started.md \
+   .kiro/steering/ml-workflow.md
+```
+
+Typing `/ml-planning` works too, with no setup — see [Install](#install) for the four ways in.
+
+**2. Ask for what you want, in your own words.** "Forecast tomorrow's demand per hour from this
+CSV", "classify these records", "just run a batch transform against my registered model". The
+planner frames the problem, checks your environment, picks a scope preset and writes `PLAN.md`.
+
+**3. Approve the plan, and authorise the spend separately.** You will be asked twice, on purpose.
+Nothing executes until `PLAN.md` carries your words verbatim, and no billable stage runs until it
+carries an instance:
+
+```
+APPROVED: "<your own sentence>" @ <ISO timestamp>
+COMPUTE:  ml.m5.large x1, spot=false, maxRuntimeMin=60, authorisedBy=user @ <ISO timestamp>
+```
+
+Approving a plan that says "processing runs as a `ProcessingStep`" is not approving an
+`ml.m5.large` for an hour, which is why they are two questions.
+
+**4. Then the loop runs itself, one instruction at a time.**
+
+```bash
+S=~/.kiro/powers/installed/sagemaker-mldlc-workflow/skills/ml-planning/scripts
+python3 $S/next.py PLAN.md --artifacts artifacts/     # exactly one directive
+# ... do that one thing, then ...
+python3 $S/report.py --task 5 --state x --artifact artifacts/processing-report.json
+python3 $S/next.py PLAN.md --artifacts artifacts/     # the next one
+```
+
+`next.py` decides the order so the agent does not, and `report.py` is the only sanctioned writer
+of task state. Expect to be stopped: a directive that reaches a decision only you can make prints
+it under **`DECIDE FIRST`** and tells the agent to end its turn and wait. Eight decisions are
+yours and the tooling refuses to invent any of them — see
+[Eight decisions](#what-actually-holds-and-what-is-only-advice).
+
+**5. You are finished when the loop says so**, not when the work feels done. `next.py` answers
+`complete` only when every stage your preset names has been settled. A validation run once stopped
+at task 14 with stages 14, 15 and 16 *absent* — contiguous numbering, nothing visibly wrong.
+
+**Re-import after any edit to your clone.** Kiro **copies** a power at import time, so a changed
+clone and a running agent are different software. `python3 scripts/validate.py` warns when the
+installed copy has fallen behind; one trial spent six hours on a stale snapshot.
+
 ## The flow
 
 ```mermaid
@@ -409,9 +467,22 @@ python3 scripts/validate.py --refresh  # re-fetch the schema first
 Validates `plugin.json` against the [Agent Plugins 1.0.0](https://agent-plugins.org/)
 schema, checks that every skill has a `SKILL.md` whose frontmatter `name` matches its
 directory, cross-checks `stages.toml` against `skills/` and against `ml-planning`'s own
-stage table, **runs the two committed fixture suites**, and **fails when a git-ignored file
-is sitting in the tree**. A schema it cannot load is a hard failure, not a warning — a
-validator reporting success while skipping its main check is worse than no validator.
+stage table, **runs the three committed fixture suites** (115 cases), and **fails when a
+git-ignored file is sitting in the tree**. A schema it cannot load is a hard failure, not a
+warning — a validator reporting success while skipping its main check is worse than no validator.
+
+**Gate your own commits on its exit code, not on its output.** An edit once joined two statements
+onto one line, so `validate.py` raised `SyntaxError` — and a commit gate that counted lines
+beginning `FAIL` found none, because a script that cannot start prints nothing. The exit code tests
+the run; grepping the output only tests the message.
+
+**Fourteen checks, and two of them exist because "remember to" did not work.**
+`check_content_stays_general()` refuses this power's validation-project vocabulary anywhere in a
+skill body, and warns when a framework name appears in load-bearing prose — the rule that a
+measurement may be a constraint's *evidence* and never its *content* had been prose for the whole
+build and had drifted in eight places by the time anyone counted.
+`check_installed_copy_is_current()` warns when the installed copy differs from the repository,
+because a run uses the copy.
 
 The regression step is there because the previous fixtures were not. They lived in a scratch
 directory and are gone, so the checks they covered have no reproducible evidence behind them.
@@ -424,9 +495,9 @@ asserts that *the intended check* fires. It also reads the label inventory out o
 and fails the run**.
 
 ```bash
-python3 scripts/trial-plan-lint.py                            # 15 checks, 4 presets
-python3 scripts/trial-control.py skills/ml-planning/scripts    # 13 control-layer cases
-python3 scripts/trial-fixes.py                                # 12 cases for three fixes
+python3 scripts/trial-plan-lint.py                            # 23 cases, every preset
+python3 scripts/trial-control.py skills/ml-planning/scripts    # 42 control-layer cases
+python3 scripts/trial-fixes.py                                # 50 cases across the checkers
 ```
 
 Breaking a refusal on purpose was checked: with `check_skippability` stubbed out,
