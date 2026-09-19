@@ -151,7 +151,7 @@ Declare where the bound came from, not only when:
 ```json
 "bound": 48.583,
 "derivedFrom": {"artifact": "artifacts/baseline-report.json",
-                "baseline": "day-ahead price", "marginPct": 5}
+                "baseline": "previous-period", "marginPct": 5}
 ```
 
 The gate redoes the arithmetic. A validation run rewrote its contract and left the old

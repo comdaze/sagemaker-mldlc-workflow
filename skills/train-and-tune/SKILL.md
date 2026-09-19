@@ -68,7 +68,7 @@ quality:
   marginPct: 5
   marginChosenBy: user          # the ship / do-not-ship line
   bound: 48.583                 # = strongest baseline x (1 - marginPct/100)
-  derivedFrom: day-ahead price
+  derivedFrom: previous-period   # whichever baseline scored strongest
   contract: contracts/quality-gate-contract.json
 ```
 

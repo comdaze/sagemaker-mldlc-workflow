@@ -279,37 +279,24 @@ failures come from.
 
 ### A `-slim` base image is missing libraries your wheels assume
 
-`pip install` succeeding proves nothing about whether the library can **load**. A wheel links
-against system shared objects that a slim image does not carry, and the failure arrives at
-*import* time inside the job — not at build time, where you would see it.
+`pip install` succeeding proves nothing about whether the library can **load**. Many numeric and
+ML wheels link against system shared objects that a slim image does not carry, and the failure
+arrives at *import* time inside the job — not at build time, where you would see it.
 
-Measured: an image built `FROM python:3.9-slim` installed LightGBM cleanly, pushed, registered,
-and then failed in a real batch transform job with
+**`requirements.txt` structurally cannot express this, which is the root cause rather than an
+aside.** pip resolves Python distributions; a shared library is an OS package. So the one file
+everyone treats as "the dependency list" is blind to an entire class of dependency, and a
+dependency list can be complete, correct, reviewed and still not describe what the image needs.
 
-```
-File ".../lightgbm/basic.py", line 265, in _load_lib
-OSError: libgomp.so.1: cannot open shared object file: No such file or directory
-```
+Two things follow, and neither depends on knowing which library.
 
-`libgomp` is the OpenMP runtime. **LightGBM and XGBoost both need it**, and a slim image omits it:
-
-```dockerfile
-RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
-```
-
-**`requirements.txt` structurally cannot express this, and that is the root cause rather than an
-aside.** pip resolves Python distributions; `libgomp1` is an OS package, so the one file everyone
-treats as "the dependency list" is blind to an entire class of dependency. That run's
-`requirements.txt` was complete and correct — `numpy==1.24.1`, `lightgbm==4.5.0` — through eight
-Dockerfile revisions and a failed transform job.
-
-So **declare the OS packages too, in a file next to it** rather than inline in a `RUN` line where
-nobody reviews them:
+**Declare the OS packages as well, in a file beside the Python ones** rather than inline in a `RUN`
+line where nobody reviews them, with a reason per entry — a reader cannot tell from a package name
+what needs it:
 
 ```
-# system-packages.txt — why each one, because a reader cannot tell from the name
-libgomp1        # OpenMP runtime; lightgbm and xgboost dlopen libgomp.so.1
+# system-packages.txt — one line per package, and why it is here
+<pkg>        # <which import fails without it, and what it dlopens>
 ```
 ```dockerfile
 COPY system-packages.txt /tmp/
@@ -318,34 +305,41 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 ```
 
-The general rule, since the specific library changes with the framework: **import the package in
-the build, not just install it.** A `RUN python -c "import lightgbm"` line costs one layer and
-converts a failed inference job into a failed build, which is the cheaper place by a wide margin.
-It also catches the next such library without anyone having to know its name in advance.
+**Import every dependency in the build, not just install it.** One `RUN python -c "import a, b, c"`
+layer turns a failed inference job into a failed build, which is cheaper by orders of magnitude —
+and it catches the next such library without anyone having to know its name in advance. That is the
+check to write, because the specific library changes with every framework and the omission does not.
+
+> **Measured instance**, for scale rather than as the rule. An image built `FROM python:3.9-slim`
+> installed a gradient-boosting library cleanly, pushed, registered, and failed in a real batch
+> transform with `OSError: libgomp.so.1: cannot open shared object file`. The OpenMP runtime is
+> missing from slim images and several numeric wheels `dlopen` it; the fix was one
+> `apt-get install libgomp1`. Its `requirements.txt` was correct throughout — two revisions, across
+> eight Dockerfile revisions and one billed failure.
 
 ### Choosing `-slim` is the decision that generates all of the above
 
-That run wrote **eight Dockerfile revisions** and changed base image four times:
+That same run wrote **eight Dockerfile revisions** and changed base image four times:
 
 ```
 12:22  FROM python:3.9-slim
-12:30  FROM 451049120500.dkr.ecr.cn-northwest-1.amazonaws.com.cn/sagemaker-scikit-learn:1.2-1-cpu-py3
-12:39  FROM python:3.9-slim                                   ← reverted
-12:42  FROM m.daocloud.io/docker.io/library/python:3.9-slim    ← Docker Hub unreachable
-13:50  + ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
-14:03  + vendored wheels, --no-index --find-links              ← index still not working
-15:27  + apt-get install libgomp1                             ← the transform job had failed
+12:30  FROM <account>.dkr.ecr.<region>.amazonaws.com.cn/sagemaker-scikit-learn:1.2-1-cpu-py3
+12:39  FROM python:3.9-slim                          ← reverted
+12:42  FROM <public-mirror>/python:3.9-slim          ← Docker Hub unreachable
+13:50  + ARG PIP_INDEX_URL=<regional mirror>
+14:03  + vendored wheels, --no-index --find-links    ← index still not working
+15:27  + apt-get install <missing runtime>           ← the transform job had already failed
 ```
 
-**It had the right answer at 12:30 and abandoned it.** A regional SageMaker or DLC image is in the
-partition, needs no public registry and no mirror, and already carries the numeric runtimes —
-including `libgomp`, because scikit-learn and scipy need it too. Every line after 12:39 is a
-consequence of the revert: the unreachable pull, the mirror, the vendored wheels, and finally the
-missing system library, three hours later and one billed job downstream.
+**It had the right answer at 12:30 and abandoned it.** A regional SageMaker or DLC image is inside
+the partition, needs no public registry and no mirror, and already carries the numeric runtimes,
+because the frameworks it ships need them too. Every line after 12:39 is a consequence of the
+revert: the unreachable pull, the mirror, the vendored wheels, and finally a missing system library
+three hours later and one billed job downstream.
 
-So treat the base image as the load-bearing choice it is. `FROM python:*-slim` is the reasonable-
-looking default that buys a small image and pays for it in the four problems above; start from a
-regional AWS image and add what it lacks, which is usually only your own code.
+So treat the base image as the load-bearing choice it is. `FROM python:*-slim` is the
+reasonable-looking default that buys a small image and pays for it in the four problems above;
+start from a regional AWS image and add what it lacks, which is usually only your own code.
 
 ## Resolving the image — never assemble a URI
 

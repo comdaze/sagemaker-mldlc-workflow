@@ -527,6 +527,70 @@ def check_step_stage_vocabulary() -> None:
                      "`Part N`. AWS's *Step class names are identifiers and are not affected.")
 
 
+def check_content_stays_general() -> None:
+    """Refuse the validation project's vocabulary, and unlabelled algorithm names, in skill bodies.
+
+    This power is a general workflow. It was built alongside one validation project, and every
+    lesson in it came from that project -- which makes leakage the default rather than the
+    exception. A measured value may be the EVIDENCE for a rule; it may never be the rule's
+    CONTENT. The distinction survived as prose for the whole build and had drifted in eight places
+    by the time anyone counted: two contract examples carried that project's own baseline name, and
+    a container section had been written with one library as its subject rather than as its
+    example.
+
+    So two tiers, because the two cases differ in kind.
+
+    Domain vocabulary is never legitimate -- no reader of a general skill needs it, in a code
+    block or out of one -- so it fails wherever it appears.
+
+    A framework name often IS legitimate: `image_uris.retrieve(framework="xgboost")` needs a
+    framework, and "py_version is ignored for xgboost but raises for pytorch" is a fact about the
+    SDK rather than about gradient boosting. What is not legitimate is a framework name in
+    load-bearing prose, where it narrows a general rule to one library. The checkable proxy: a
+    fenced code block, an indented block, or a blockquote is presentation or labelled evidence;
+    a bare prose line is the rule itself.
+    """
+    # From the validation project. None of these belong in a general workflow at all.
+    domain = [
+        "day-ahead", "电价", "MWh", "出清", "trade_date", "settlement price",
+        "spot price", "grid load", "load forecast",
+    ]
+    # Legitimate in an API example or an SDK-behaviour note; not in guidance prose.
+    frameworks = [
+        "lightgbm", "xgboost", "catboost", "prophet", "statsmodels",
+        "libgomp", "scikit-learn", "sklearn",
+    ]
+    for body in sorted((ROOT / "skills").glob("*/SKILL.md")):
+        rel = body.relative_to(ROOT)
+        lines = body.read_text(encoding="utf-8").splitlines()
+        in_fence = False
+        for n, line in enumerate(lines, 1):
+            if line.lstrip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            low = line.lower()
+            for term in domain:
+                if term.lower() in low:
+                    fail(f"{rel}:{n} uses {term!r}, which is vocabulary from the validation "
+                         "project rather than from SageMaker. A measurement can be a rule's "
+                         "evidence and never its content -- restate it in the terms any project "
+                         "would use.")
+            if in_fence or line.startswith((">", "    ", "\t", "|")):
+                continue                    # example, labelled evidence, or a table cell
+            for term in frameworks:
+                if term in low:
+                    # WARN rather than fail, and deliberately. Some prose uses are legitimate --
+                    # "py_version is ignored for xgboost but raises for pytorch" is a fact about
+                    # the SDK, not about gradient boosting -- and no mechanical test separates
+                    # those from a rule that has been narrowed to one library. Naming the line for
+                    # a human is honest; failing it would force the text to be mangled around the
+                    # checker, which is how a control becomes something to work around.
+                    warn(f"{rel}:{n} names {term!r} in prose. Legitimate if it is a fact about "
+                         "the SDK or the platform; a leak if a general rule has been narrowed to "
+                         "one library. Check which, and move a measured case into a code block "
+                         "or a blockquote labelled as an instance.")
+
+
 def check_stages_are_named(stages: dict) -> None:
     """Every stage must be named in the body of the skill that owns it."""
     # Every stage must be NAMED in its owner's body. The skills are invoked per stage -- next.py
@@ -694,6 +758,7 @@ def main() -> int:
     has_power_md = check_power_md(ROOT / "POWER.md")
     check_stage_catalogue()
     check_docs_track_code()
+    check_content_stays_general()
     check_installed_copy_is_current()
     check_regressions(args.no_regressions)
     check_import_cleanliness()
