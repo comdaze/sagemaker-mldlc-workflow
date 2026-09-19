@@ -56,6 +56,35 @@ So: the contract file is written at stage 6, and the gate report at stage 10 cit
 digest and asserts that the contract predates the predictions. **"I did not peek" is not
 evidence; a file that provably existed first is.**
 
+### The margin and the metric are the user's, and this is where they are asked
+
+The bound is declared here, **before any score exists**, which is also the only honest moment to
+ask about it:
+
+```yaml
+quality:
+  metric: mae
+  metricChosenBy: user          # what "good" means
+  marginPct: 5
+  marginChosenBy: user          # the ship / do-not-ship line
+  bound: 48.583                 # = strongest baseline x (1 - marginPct/100)
+  derivedFrom: day-ahead price
+  contract: contracts/quality-gate-contract.json
+```
+
+**`marginPct` is the most consequential number in the workflow.** It says how much better than
+the strongest baseline a model must be before it is worth operating — and nothing in the data, the
+algorithm or this script determines it. A run that picks it has decided the gate's outcome in
+advance. Put it to the user with the baseline's own score beside it.
+
+**The metric chooses the model.** MAE, RMSE and a daily P95 do not rank the same candidates the
+same way; `evaluate-and-gate`'s `references/metrics-by-task.md` lists several per task precisely
+because none of them is the answer.
+
+Both are refused at this stage and again by `quality-gate.py` at stage 10 — because a contract can
+reach the gate without the baseline report, and a gate enforcing a bound nobody chose applies an
+accident with the authority of a refusal.
+
 ### Name the strongest baseline, not the most flattering one
 
 The bound comes from the **strongest** baseline that is valid at prediction time, which is
@@ -76,6 +105,31 @@ the report**, because a training job takes a path, and a path is not an identity
 
 A test channel does not exist in a training job. If the code has one, that is a defect
 regardless of whether it is currently pointed anywhere.
+
+### The algorithm is the user's choice, and naming the alternatives is what makes it one
+
+Record it, who chose it, and **what else was offered**:
+
+```yaml
+algorithm: xgboost
+algorithmChosenBy: user
+algorithmAlternatives: [xgboost, linear-learner, sklearn.HistGradientBoosting]
+runtimeMode: built-in        # built-in | byos | extended | byoc | byom — recorded, not signed
+```
+
+This is the most consequential of the decisions this skill refuses to make for you. The tuning
+method decides what a search costs; the algorithm decides **what the model can express, what the
+serving stack is, and who maintains it afterwards.** A run that picks it silently has settled the
+shape of everything downstream.
+
+`algorithmAlternatives` must name something other than the choice itself, and that requirement
+comes from a defect found in this very power: a checker once required a shape only one method
+could produce, which made the user's agreement to it hollow. **A choice among one option is not a
+choice.** `references/baselines-and-search.md` covers trees, linear models and networks — this
+skill has never claimed one of them is the answer.
+
+`runtimeMode` is accounting rather than a refusal: the five modes differ in what somebody has to
+maintain rather than in whether they work, so it has to be visible without needing a signature.
 
 ### Record the run so it can be found again
 
@@ -127,60 +181,6 @@ consumes it, one experiment at a time, and every individual run still looks hone
 
 Validation is what tuning may read. Test is read once, by `evaluate-and-gate`, after the
 winner is fixed.
-
-### The margin and the metric are the user's, and stage 6 is where they are asked
-
-The bound is declared here, **before any score exists**, which is also the only honest moment to
-ask about it:
-
-```yaml
-quality:
-  metric: mae
-  metricChosenBy: user          # what "good" means
-  marginPct: 5
-  marginChosenBy: user          # the ship / do-not-ship line
-  bound: 48.583                 # = strongest baseline x (1 - marginPct/100)
-  derivedFrom: day-ahead price
-  contract: contracts/quality-gate-contract.json
-```
-
-**`marginPct` is the most consequential number in the workflow.** It says how much better than
-the strongest baseline a model must be before it is worth operating — and nothing in the data, the
-algorithm or this script determines it. A run that picks it has decided the gate's outcome in
-advance. Put it to the user with the baseline's own score beside it.
-
-**The metric chooses the model.** MAE, RMSE and a daily P95 do not rank the same candidates the
-same way; `evaluate-and-gate`'s `references/metrics-by-task.md` lists several per task precisely
-because none of them is the answer.
-
-Both are refused at this stage and again by `quality-gate.py` at stage 10 — because a contract can
-reach the gate without the baseline report, and a gate enforcing a bound nobody chose applies an
-accident with the authority of a refusal.
-
-### The algorithm is the user's choice, and naming the alternatives is what makes it one
-
-Record it, who chose it, and **what else was offered**:
-
-```yaml
-algorithm: xgboost
-algorithmChosenBy: user
-algorithmAlternatives: [xgboost, linear-learner, sklearn.HistGradientBoosting]
-runtimeMode: built-in        # built-in | byos | extended | byoc | byom — recorded, not signed
-```
-
-This is the most consequential of the decisions this skill refuses to make for you. The tuning
-method decides what a search costs; the algorithm decides **what the model can express, what the
-serving stack is, and who maintains it afterwards.** A run that picks it silently has settled the
-shape of everything downstream.
-
-`algorithmAlternatives` must name something other than the choice itself, and that requirement
-comes from a defect found in this very power: a checker once required a shape only one method
-could produce, which made the user's agreement to it hollow. **A choice among one option is not a
-choice.** `references/baselines-and-search.md` covers trees, linear models and networks — this
-skill has never claimed one of them is the answer.
-
-`runtimeMode` is accounting rather than a refusal: the five modes differ in what somebody has to
-maintain rather than in whether they work, so it has to be visible without needing a signature.
 
 ### The method is the user's choice, and it is a spending decision
 
