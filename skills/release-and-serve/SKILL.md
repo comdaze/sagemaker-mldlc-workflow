@@ -293,11 +293,28 @@ The most expensive misreading available here. That run's `post_build` verified i
 CodeBuild reported the build `FAILED` — **after the push in `build` had already succeeded.** The
 image was in ECR the whole time.
 
-Two consequences. Grant ECR **read** alongside push, because a policy that can write and not read
-turns a working build into a failed one. And **look in ECR before resubmitting**: a blind retry
-pushes a second image and leaves two digests both plausibly "the" one, which is a provenance
-problem rather than a wasted build. Keep the verification — but put it where its own failure
-cannot overwrite the build's real outcome.
+**Take the digest from `docker push`, and do not call `describe-images` at all.** The obvious fix is
+to widen the role; the better one is to remove the dependency, which is what that run did. The push
+output already contains the digest of what was actually pushed, so reading it back asks ECR a
+question you have just been told the answer to — and it is the more authoritative answer, because a
+tag can be moved afterwards and a digest cannot.
+
+```yaml
+post_build:
+  commands:
+    # digest of what was pushed, with no ECR read permission required
+    - IMAGE_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$REPOSITORY_URI:$IMAGE_TAG" | cut -d@ -f2)
+    - printf '%s\n' "$IMAGE_DIGEST" > digest.txt
+```
+
+**This is also why the model package ends up pinned by digest rather than by tag, and the
+constraint arrived from two directions at once.** The provenance triple wants the digest; the denied
+`DescribeImages` call meant the digest was the only identifier the build could produce, because
+resolving a tag is exactly what that API does. A rule that is independently forced by a permission
+boundary is a cheap rule to keep.
+
+**And look in ECR before resubmitting.** A blind retry pushes a second image and leaves two digests
+both plausibly "the" one, which is a provenance problem rather than a wasted build.
 
 **What held through that episode, and what did not.** Two hours of build failures produced no
 false claim of readiness: the candidate stayed `readyForExecution=false` with `/ping` and CSV
@@ -307,20 +324,27 @@ things. The section below is that lesson.
 
 ### Reference the image by digest, and exercise it before registering
 
-**`repo:tag` is the common form and SageMaker accepts it. Use `repo@sha256:…` anyway** — the
-`imageDigest` leg of the provenance triple above is the reason, and one run supplied the evidence
-better than the argument does. It produced **three digests in one repository inside two hours**:
-one pushed by a build that reported `FAILED`, one registered as version 1, and one built to fix a
-runtime library. Their tags were `codebuild-source-e6350439` and `codebuild-source-551a1e14` —
-distinguishable only by the part nobody reads. A tag reference would not have said which image the
-package contained, and version 1 contained the broken one.
+**`repo:tag` is the common form and SageMaker accepts it. Use `repo@sha256:…` anyway** — and
+note that the same conclusion arrives from a second direction, which is the section above: with
+`ecr:DescribeImages` denied, the digest from `docker push` was the only identifier the build could
+produce, because resolving a tag is what that API is for. One run supplied the evidence better than
+the argument does. It produced **three digests in one repository inside two hours**: one pushed by a
+build that reported `FAILED`, one registered as version 1, and one built to fix a runtime library.
+Their tags were `codebuild-source-e6350439` and `codebuild-source-551a1e14` — distinguishable only
+by the part nobody reads. A tag reference would not have said which image the package contained, and
+version 1 contained the broken one.
 
-**Exercise the container before you register it, and treat that as a gate rather than a good
-habit.** That version 1 was registered, described, and sent to a real batch transform job before
-anything discovered that the image could not load its own library (`libgomp.so.1`, see
-`runtime-and-containers`). The run recorded the omission honestly — *smoke test was not required by
-`PLAN.md`* — which is exactly the failure mode this power keeps finding: the check existed as prose
-and prose does not run.
+**Exercise the container before you register it — and put that in the plan, rather than bolting it
+on.** That version 1 was registered, described, and sent to a real batch transform job before
+anything discovered the image could not load its own library (`libgomp.so.1`, see
+`runtime-and-containers`). The run recorded why: *smoke test was not required by `PLAN.md`*.
+
+**Both halves of that are failures, and they have different remedies.** A check that lives only in
+prose does not run — so the smoke test belongs in the plan's stage 11 task at planning time, which
+is what this section is for. But when the same run then added a smoke-test build mid-flight, its
+user objected, and the user was right: work not in the approved plan is not the run's to insert.
+Amend the plan and get that agreed, or do not do it. *Declared beforehand* and *improvised
+afterwards* are the same activity with opposite standing.
 
 Two calls answer it before an instance is billed: `/ping` must return 200, and `/invocations` must
 accept one real record in the payload format the transform job will send. A container that cannot

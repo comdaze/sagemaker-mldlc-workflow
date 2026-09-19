@@ -83,11 +83,39 @@ the network.
 
 | Source | Notes |
 |---|---|
-| **AWS Public ECR** (`public.ecr.aws/docker/library/python:3.11-slim`) | in-partition, no credentials, no rate limit — the first thing to try |
-| An AWS DLC or SageMaker image in the region's own registry | already the right shape for SageMaker; resolve it, never assemble the URI |
-| **`nwcdlabs/container-mirror`** in `cn-northwest-1` ECR | covers what Public ECR does not — see the table below |
-| Aliyun ACR mirror (`registry.cn-hangzhou.aliyuncs.com`) | reliable; namespace differs from Docker Hub's |
-| DaoCloud (`docker.m.daocloud.io`) | a drop-in prefix for a Docker Hub reference |
+| **A SageMaker or DLC image in the region's own registry** | resolve it with `image_uris.retrieve`; no public registry is touched at all, and it already carries the runtimes a slim base omits |
+| **Your own ECR, pre-staged** | pull the base once by hand, push it to your account, then `FROM` that — see the measurement below |
+| **AWS Public ECR** (`public.ecr.aws/docker/library/python:3.11-slim`) | in-partition, no credentials, no rate limit |
+| **`nwcdlabs/container-mirror`** in `cn-northwest-1` ECR | covers `gcr.io`, `quay.io`, `k8s.gcr.io` — see the table below |
+| DaoCloud (`docker.m.daocloud.io`) | a drop-in prefix for a Docker Hub reference, and **measured slow** — see below |
+| Aliyun | **not a guessable address** — see below |
+
+**Two corrections that came out of measuring rather than reasoning.**
+
+**DaoCloud works and was the bottleneck.** A run instrumented its own slow build and found the
+base-image layers, not pip and not the ECR push, were the cost:
+
+```
+DaoCloud image metadata        5.8 s
+29.78 MB layer               ~25 s
+13.88 MB layer                46 s and still not finished
+```
+
+At those rates the build had not reached `pip install` or `docker push` yet. **The fix is to stop
+pulling it on every build**: pull the base image once, push it into your own ECR, and point
+`FROM` at that. One slow pull instead of one per build, and the base stops being a network
+dependency of every future build.
+
+**Aliyun's Docker acceleration is not one address you can write down.** It is generally
+per-account — an ACR instance's own endpoint, often with its own credentials — so
+`registry.cn-hangzhou.aliyuncs.com` is **not** a working drop-in and inventing a
+`registry.cn-…` host is the same mistake as hand-assembling an ECR URI. If a user has ACR, ask
+them for their endpoint. Its PyPI mirror (`mirrors.aliyun.com`) is a different service and is
+a public address; do not generalise from one to the other.
+
+**A prerequisite that is easy to miss:** a CodeBuild project needs `privilegedMode` enabled to run
+`docker build` at all. It is a project setting, not a permission, so the failure does not look like
+one.
 
 ### The nwcdlabs mirror, and the rule for rewriting a path
 
