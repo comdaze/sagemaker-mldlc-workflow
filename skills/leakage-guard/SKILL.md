@@ -20,10 +20,12 @@ holds in every modality. Which statistic implements it is in `references/`, and 
 says which one to read.
 
 **This skill is stage 4 of the sixteen, and its own sections are lettered `Part N` for that
-reason.** They used to be `Step N`, which read as a second stage numbering inside a skill that
-already *is* a stage — and one of them, `Step 6`, sat in a power that also has a stage 6. `Part`
-collides with nothing. AWS's own `ProcessingStep` and `ConditionStep` keep their names: those are
-identifiers, not ours to rename.
+reason.** The six Parts below are the procedure *inside* stage 4 — Part ⊂ stage, cleanly. They
+used to be `Step N`, which read as a second stage numbering inside a skill that already *is* a
+stage, and one of them, `Step 6`, sat in a power that also has a stage 6. `Part` collides with
+nothing. Note that `ml-planning`'s `Part N` is a different kind of thing: that skill's Parts are
+its own workflow and do not sit inside any one stage. AWS's `ProcessingStep` and `ConditionStep`
+keep their names — those are identifiers, not ours to rename.
 
 ## Part 1: name the prediction time
 
