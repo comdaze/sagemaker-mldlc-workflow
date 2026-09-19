@@ -76,6 +76,26 @@ This is how the audit that let two skills be copied byte-for-byte was framed, an
 it caught a real leak: 37 lines of forecasting vocabulary in the planner, against 2
 and 1 in the two that travelled unchanged.
 
+**And the check is now a program, because as prose it did not hold.** The rule above survived every
+review by being read and agreed with; counted rather than recalled, it had drifted in **eight
+places** by round 13. Two contract examples carried the validation project's own baseline name
+where any project's word would do, and a container section had been written with one library as its
+subject rather than as its example — by the same author who had written the rule, an hour after
+restating it.
+
+`check_content_stays_general()` in `scripts/validate.py` enforces it in two tiers, and the two
+differ in kind rather than in severity:
+
+| Tier | Verdict | Why |
+|---|---|---|
+| Domain vocabulary — the validation project's own terms | **FAIL** anywhere, in a code block or out of one | No reader of a general skill ever needs them. There is no legitimate use to protect |
+| A framework or library name in **prose** | **WARN**, naming the line | `image_uris.retrieve(framework=…)` needs a framework, and "`py_version` is ignored for one framework and raises for another" is a fact about the SDK. No mechanical test separates those from a rule narrowed to one library |
+
+The second tier is deliberately not a refusal. A hard failure there would force the text to be
+written around the checker — the exact route by which a control becomes something to work around —
+so it reports the line and a human decides. That asymmetry is the same one the README draws between
+refusal and accounting, applied to prose.
+
 ### Where domain material goes: `SKILL.md` decides, `references/` explains
 
 Failing the three-domain check is not grounds for deleting content. Correlation
@@ -491,6 +511,52 @@ demanded everywhere; `computeChosenBy: user` only for `amt-search`, where the ch
 guidance warns about, and blunt instruments get worked around.
 
 
+
+### Round 13: the first complete run, and what a complete run still got wrong
+
+Archived at `sm-workflow-trial-harness/run13/`. The first round to finish its preset — all 14 tasks
+`[x]`, `batch-serving` end to end, a registered model package and a batch transform that produced
+its predictions. Build fingerprint `e17d70dfa729`.
+
+**Read that fingerprint before the results.** 23 commits landed in the repository during the round,
+so nothing in them was exercised by it. Every mechanism added on 2026-09-19 — the `DECIDE FIRST`
+directive, stage 10 as inline, the `is_blank()` fix, all of the container guidance — was *learned
+from* this round and not *tested on* it. The distinction is easy to lose a week later, which is why
+the archive note leads with it.
+
+| Question | Verdict |
+|---|---|
+| Does the loop get used throughout? | **Passed.** 13 directives, 17 reports, seven scripts called 77+ times, none bypassed |
+| Do both authorisations appear? | **Passed, first time.** `APPROVED` carries the user's own sentence; `COMPUTE` names an instance, and exists only because the gate refused without it |
+| Is an out-of-order report usable? | **Passed.** Task 8 went `[x]` → `[R]` → `[x]` over 114 minutes when tuning had to be redone. Accounted, not blocked — refusing it would leave no legal way to withdraw a premature claim |
+| Does cross-cutting work fit? | **Passed.** Task 11 used `Stage: pipeline-composition`; task and stage numbers diverge from 11 onward and nothing broke, because prerequisites read `stages.toml` by stage while reports key by task |
+| Does "not marked ready" mean "not used"? | **Failed.** The candidate stayed `readyForExecution=false` and was registered and dispatched anyway. Model package version 1 held an image that could not load its own library, and a billed transform job is what found out |
+
+**Four defects in the power, each now closed.** They are worth listing together because three of
+the four share a shape: the rule was right and the *timing* or the *reachability* was wrong.
+
+1. **A checker crashed instead of judging.** `contract-check.py` raised `TypeError: unhashable
+   type: 'dict'` on a real artefact. A gate that raises gates nothing, and its traceback reads as a
+   bug in the power rather than as a fact about the data. 39 tests across four checkers had the same
+   shape; all now route through `is_blank()`.
+2. **Stage 10 was declared billable.** The loop demanded a compute authorisation before the quality
+   gate — arithmetic over two JSON files — could be reported. The run argued and re-designed the
+   stage as a `ConditionStep`; it was right. It then reported the stage with `instanceType=none,
+   instanceCount=0`, a hollow value the required field forced it to invent. **When a rule can only
+   be satisfied by a placeholder, the rule is wrong** — that is a cheap audit question and it had
+   never been asked of that field.
+3. **The `*ChosenBy` refusals fired too late.** They fire when the report arrives, by which time the
+   jobs have run and the money is spent. `user_decides` in `stages.toml` plus `DECIDE FIRST` in the
+   directive moves the asking in front of the work, with the HARD STOP verb borrowed from
+   `aidlc-workflows`' stage protocol: end the turn, call no tool, wait. The prose rule "put it to
+   the user" had been satisfied by announcing a decision and continuing in the same turn.
+4. **"Stay general" was prose and had drifted eight ways.** Now `check_content_stays_general()`.
+
+**One more, about the method rather than the power.** Four separate wrong conclusions in one day
+came from the same error: a search narrow enough to feel thorough. The worst was parsing the session
+transcript by `tool_call` and `tool_result` only — for hours, across several analyses — while the
+810 `assistant` payloads, where a run explains *why* it did something, went unopened. The correction
+that mattered came out of those and contradicted what the tool calls alone had suggested.
 
 ### Three faults a validation run found in the checks themselves
 
