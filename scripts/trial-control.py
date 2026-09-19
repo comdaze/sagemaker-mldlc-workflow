@@ -49,7 +49,14 @@ MANIFEST = json.dumps({
 TRUNC = GOOD.replace("PRESET: data-prep-only", "PRESET: full-lifecycle")
 
 
-def run(script, *a):
+def run(script, *a, keep_ledger=False):
+    # Each case gets a fresh ledger unless it says otherwise. Stale state between fixtures produced
+    # three false failures in one day: the digest refusal left by a previous case fires first and
+    # masks whatever this case was testing. Clearing it here rather than per-case is the only
+    # version that cannot be forgotten -- and the three cases that are ABOUT the digest opt out
+    # explicitly, which makes their dependence on prior state visible instead of accidental.
+    if not keep_ledger:
+        (D / "PLAN.state.json").unlink(missing_ok=True)
     p = subprocess.run([sys.executable, str(S / script), *map(str, a)],
                        capture_output=True, text=True)
     return p.returncode, (p.stdout + p.stderr).strip()
@@ -121,10 +128,10 @@ print("\n=== a hand edit does not count ===")
 t = plan.read_text(encoding="utf-8").replace(
     "4. [ ] **Leakage guard**", "4. [-] **Leakage guard**")
 plan.write_text(t, encoding="utf-8")
-rc, out = run("next.py", plan)
+rc, out = run("next.py", plan, keep_ledger=True)
 fails += not case("a lint-clean hand edit still fails the ledger digest", "REFUSED", rc, out, "does not count")
 print("      " + out.replace("\n", "\n      ")[:340])
-rc2, out2 = run("next.py", plan)
+rc2, out2 = run("next.py", plan, keep_ledger=True)
 fails += not case("and it stays refused; the mismatch does not heal itself", "REFUSED", rc2, out2, "digest" if "digest" in out2 else "ledger")
 
 
@@ -266,7 +273,7 @@ ph3.write_text(GOOD.replace("**Register the dataset**",
 run("next.py", ph3)
 before_txt = ph3.read_text(encoding="utf-8")
 ph3.write_text(before_txt.replace("s3://generic/", "s3://restricted/"), encoding="utf-8")
-rc, out = run("next.py", ph3, "--no-record")
+rc, out = run("next.py", ph3, "--no-record", keep_ledger=True)
 fails += not case("changing a prefix in the plan text is caught", "REFUSED", rc, out,
                   "some route other than report.py")
 
