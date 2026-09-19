@@ -38,20 +38,34 @@ verdict, and the capability matrix records how each one was established.
 
 ## What It Provides
 
-Five skills today, of fourteen planned. `ml-planning` states which do not exist yet,
-and the plan linter refuses a task attributed to a missing one.
+Eight skills covering sixteen stages. A skill owns several stages, so the checklist stays
+sixteen items while the files stay eight — CRISP-DM has grouped a comparable task list
+under six phases since 1996 for the same reason.
 
-- `ml-planning` — resolves the partition and the SDK version before code is written,
-  names the prediction time, picks a scope preset, and maintains a checkable
-  `PLAN.md`
-- `leakage-guard` — decides which features are admissible by asking whether each value
-  was knowable at prediction time, and refuses a feature that nearly *is* the target
-- `runtime-and-containers` — the five runtime modes, the SageMaker container contract,
+- `ml-planning` — resolves the partition and the SDK version before code is written, names
+  the prediction time, picks a scope preset, maintains a checkable `PLAN.md`, and composes
+  the stages into a `Pipeline`
+- `data-pipeline` — registers a dataset as an immutable identity, then processes it into
+  training inputs without destroying the guarantee
+- `leakage-guard` — decides which inputs are admissible by asking whether each value was
+  knowable at prediction time, and refuses one that nearly *is* the target
+- `train-and-tune` — naive baselines before any model, the quality bound derived from them
+  before results exist, and a search that never sees the test set
+- `evaluate-and-gate` — scores a fixed model once, recomputes every number, and applies a
+  gate that fails closed and carries the command that clears it
+- `release-and-serve` — provenance pinned as code, data and image digests; three gates that
+  check evidence rather than status fields; then batch inference or a real-time endpoint
+- `monitor-and-retrain` — what to archive per prediction, when accumulated error justifies
+  a retrain, and whether a missing managed capability should be self-built or read live
+- `runtime-and-containers` — cross-cutting: the five runtime modes, the container contract,
   image resolution per partition, and the SDK v2/v3 gate
-- `governed-release` — provenance pinned as code, data and image digests; three gates
-  that check evidence rather than status fields; approval split three ways
-- `dont-rebuild-what-you-can-read` — whether a missing managed capability should be
-  self-built or read from an API you already have
+
+Five ship a script that refuses rather than a description of one: `plan-lint.py`,
+`contract-check.py`, `leakage-screen.py`, `training-check.py`, `quality-gate.py`. Two of
+them decide rather than check — the leakage screen computes on the data and refuses to
+report at all if its own built-in probe does not fire, and the gate computes its own
+verdict and exits non-zero, so a failing gate stops a step instead of producing a document
+someone has to read.
 
 ## Install — importing is not enough
 

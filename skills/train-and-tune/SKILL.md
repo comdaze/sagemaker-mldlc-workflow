@@ -1,0 +1,338 @@
+---
+name: train-and-tune
+description: Establishes naive baselines, trains a model against them, and tunes on validation data only - covering task-appropriate baselines computed before any model exists, the quality bound derived from them and declared before results, asserting the training input's identity, recording the model artefact and image by digest, and a search whose candidates are declared in advance and never see the test set. Use when training or retraining a model, choosing hyperparameters, deciding what a good result would be, or reviewing whether a reported score means anything. Applies to tabular, time-series and deep-learning work in every partition.
+---
+
+# Train and tune
+
+Three stages that only make sense in this order. **Baselines first, because a model
+cannot be judged before something exists to judge it against.** A run that trains first
+treats whatever number it gets as the result — and the number will look reasonable,
+because there is nothing to compare it to.
+
+`data-pipeline` produced the inputs and their digests. `evaluate-and-gate` scores the
+winner once, at the end. This skill covers everything between: establishing what good
+would be, producing a candidate, and improving it without touching the held-out set.
+
+**This body decides; the references measure.** Which baselines are appropriate and what a
+search space looks like differ per task, and that is in `references/`.
+
+## Stage 6: baselines, and the bound they imply
+
+### Compute them before any model exists
+
+A naive baseline is a prediction rule with no learned parameters. Every task has at least
+two, they cost a single pass over the data, and they are the only thing that makes a
+model's score interpretable.
+
+**The refusal: do not proceed to training until the baselines are recorded.** Not as
+advice — as a check that the training stage reads and fails on.
+
+The reason, from a validation run of this power's predecessor: the pipeline reported MAE
+18.8 against a quality gate of 130 and every structural check passed. One leaking input,
+used directly as the prediction with no model at all, scored 14.2 — better than the
+trained model. The naive baselines were 182.7 and 137.1. **Had those two numbers been
+required outputs, 18.8 would have been suspect on sight** rather than six months later.
+
+### The quality bound is derived here, not at the gate
+
+This is the stage that decides what "good enough" means, and it must happen **now** —
+while the model's score does not yet exist.
+
+Write `contracts/quality-gate-contract.json` at this stage, with the bound derived from
+the strongest baseline and the margin stated:
+
+```
+bound = strongest valid baseline, improved by the declared margin
+```
+
+Why here and not at stage 10: a real run got the substance right and still could not
+show it. Its threshold was genuinely fixed 36 minutes before evaluation — but the file
+named `quality-gate-contract.json` was written two minutes *after* the evaluation report,
+so an auditor opening the gate contract saw a bound younger than the result it judged,
+with the exonerating evidence in a different file they had no reason to open.
+
+So: the contract file is written at stage 6, and the gate report at stage 10 cites its
+digest and asserts that the contract predates the predictions. **"I did not peek" is not
+evidence; a file that provably existed first is.**
+
+### The margin and the metric are the user's, and this is where they are asked
+
+The bound is declared here, **before any score exists**, which is also the only honest moment to
+ask about it:
+
+```yaml
+quality:
+  metric: mae
+  metricChosenBy: user          # what "good" means
+  marginPct: 5
+  marginChosenBy: user          # the ship / do-not-ship line
+  bound: 48.583                 # = strongest baseline x (1 - marginPct/100)
+  derivedFrom: previous-period   # whichever baseline scored strongest
+  contract: contracts/quality-gate-contract.json
+```
+
+**`marginPct` is the most consequential number in the workflow.** It says how much better than
+the strongest baseline a model must be before it is worth operating — and nothing in the data, the
+algorithm or this script determines it. A run that picks it has decided the gate's outcome in
+advance. Put it to the user with the baseline's own score beside it.
+
+**The metric chooses the model.** MAE, RMSE and a daily P95 do not rank the same candidates the
+same way; `evaluate-and-gate`'s `references/metrics-by-task.md` lists several per task precisely
+because none of them is the answer.
+
+Both are refused at this stage and again by `quality-gate.py` at stage 10 — because a contract can
+reach the gate without the baseline report, and a gate enforcing a bound nobody chose applies an
+accident with the authority of a refusal.
+
+### Name the strongest baseline, not the most flattering one
+
+The bound comes from the **strongest** baseline that is valid at prediction time, which is
+often much harder to beat than the mean. A model that beats the mean and loses to the
+obvious domain heuristic has not earned a release, and choosing the weaker comparison is
+the most common way a gate gets quietly set to something a model can clear.
+
+If the strongest baseline is itself suspiciously good, that is `leakage-guard`'s screen
+firing late — a "baseline" that is nearly the target is a leak, not a baseline.
+
+## Stage 7: training
+
+### Assert what you are training on
+
+The processing report recorded a digest per output. Read it and assert the training input
+matches before the job starts. **Refuse to train on an input whose digest does not match
+the report**, because a training job takes a path, and a path is not an identity.
+
+A test channel does not exist in a training job. If the code has one, that is a defect
+regardless of whether it is currently pointed anywhere.
+
+### The algorithm is the user's choice, and naming the alternatives is what makes it one
+
+Record it, who chose it, and **what else was offered**:
+
+```yaml
+algorithm: xgboost
+algorithmChosenBy: user
+algorithmAlternatives: [xgboost, linear-learner, sklearn.HistGradientBoosting]
+runtimeMode: built-in        # built-in | byos | extended | byoc | byom — recorded, not signed
+```
+
+This is the most consequential of the decisions this skill refuses to make for you. The tuning
+method decides what a search costs; the algorithm decides **what the model can express, what the
+serving stack is, and who maintains it afterwards.** A run that picks it silently has settled the
+shape of everything downstream.
+
+`algorithmAlternatives` must name something other than the choice itself, and that requirement
+comes from a defect found in this very power: a checker once required a shape only one method
+could produce, which made the user's agreement to it hollow. **A choice among one option is not a
+choice.** `references/baselines-and-search.md` covers trees, linear models and networks — this
+skill has never claimed one of them is the answer.
+
+`runtimeMode` is accounting rather than a refusal: the five modes differ in what somebody has to
+maintain rather than in whether they work, so it has to be visible without needing a signature.
+
+### Record the run so it can be found again
+
+Three identities, all by digest and none by tag:
+
+| Record | Why not the friendly form |
+|---|---|
+| the image, by digest | a tag moves, and then the run cannot be rebuilt |
+| the model artefact, with its object version | a path can be overwritten |
+| the input, by digest | see above |
+
+### The compute decision has to be written down, and Spot is not a detail
+
+`instanceType`, `instanceCount` and `useSpot` are required in the training and tuning records.
+This power had no place for any of them: `ml.` appeared in no skill body and Spot appeared
+nowhere in the repository, so every job picked an instance and nothing kept which.
+
+**`useSpot` must be an explicit `true` or `false`.** Leaving it out is not neutrality — the job
+runs on-demand, so the expensive option gets chosen by omission and no decision is visible.
+`false` is a good answer; it just has to be one.
+
+**`computeChosenBy: user` is required for `amt-search` only.** One training job's instance is a
+routine call. A search runs that choice `maxJobs` times over, which is where it stops being a
+configuration detail and becomes a budget — so put the total to the user before spending it. The
+asymmetry is deliberate: demanding a signature for every single job is the blunt-instrument
+failure `ml-planning` warns about.
+
+Plus the resolved hyperparameters as they were actually sent, not as they were intended.
+A default that changed between SDK versions is invisible in intent and visible in the
+resolved set.
+
+### A job that exited zero has not necessarily succeeded
+
+Success is exit code **and** artefact. A job that finishes cleanly and writes no model is
+a failure that reports as a success, and it is the shape that wastes the most time
+downstream. `release-and-serve` makes this a gate; here it is the thing to assert before
+recording the run as done.
+
+Record billable time and instance type beside the result. Not for accounting — so that
+"train a bigger one" is a decision with a number attached.
+
+## Stage 8: tuning
+
+### The test set is not a channel here
+
+**The refusal: a tuning job with a test channel is refused, not warned about.** Tuning
+selects among candidates by comparing scores; a comparison that can see the held-out set
+consumes it, one experiment at a time, and every individual run still looks honest.
+
+Validation is what tuning may read. Test is read once, by `evaluate-and-gate`, after the
+winner is fixed.
+
+### The method is the user's choice, and it is a spending decision
+
+Tuning has two shapes and they differ by orders of magnitude in cost:
+
+| `method` | What it declares | What it costs |
+|---|---|---|
+| `fixed-candidates` | an explicit candidate list | exactly as many training jobs as the list names |
+| `amt-search` | a `searchSpace` of ranges plus `maxJobs` | whatever the budget allows, chosen by the service |
+
+**Put both to the user with the cost of each named, and record their answer as
+`methodChosenBy: user`.** There are exactly two — a declared list of parameter sets, or an
+automatic search over ranges. Not tuning at all is a different thing: this stage is `CONDITIONAL`,
+so `[S]` with a reason covers it.
+
+**Ask before the work, not after.** `next.py`'s stage 8 directive now names all three decisions —
+method, strategy, compute — under `DECIDE FIRST`, and tells the run to end its turn and wait. The
+`*ChosenBy` refusals still hold, but they fire when the report arrives, by which time the jobs have
+run and the money is spent. A run picked fixed parallel candidates without asking and nothing
+objected — and worse, the checker demanded a `candidates` list, so the tool itself pushed
+toward one of the two answers. Both failures are now refusals: an undeclared `method`, and a
+`method` the user did not choose.
+
+Do not infer the choice from the request. "Tune it" names the stage, not the method.
+
+#### And if it is `amt-search`, the strategy is a second choice
+
+The four are not interchangeable, and two of them will not run at all in the wrong place:
+
+| `strategy` | Choose it for | Constraint |
+|---|---|---|
+| `Bayesian` | learning from prior runs | sequential by nature, so parallelism does not scale |
+| `Random` | maximum parallelism | none; runs are independent |
+| `Hyperband` | large jobs, early stopping of weak ones | **iterative algorithms only** — record `iterativeAlgorithm: true` |
+| `Grid` | reproducibility, an exhaustive sweep | **categorical parameters only**, and `maxJobs` *equals* the number of combinations |
+
+Spell them as the API does. `strategyChosenBy: user` is required for the same reason
+`methodChosenBy` is. The two constraints are refusals because they are API facts rather than
+preferences: Grid over a continuous range and Hyperband on a non-iterative algorithm are
+rejected by the service, not merely inefficient. Per-region availability of each strategy was
+**not** verified against the China baseline — the rule requires that the user chose, and claims
+nothing about what is offered.
+
+### Two AMT rejections that cost a real run ten attempts
+
+Both are `CreateHyperParameterTuningJob` refusing before anything runs, and neither is
+guessable from the parameter names.
+
+**The tuning job name is capped at 32 characters, not 63.** The API pattern is
+`[a-zA-Z0-9](-*[a-zA-Z0-9]){0,31}`. A run used the same naming convention that had worked all
+day for processing and training jobs and was rejected:
+
+```
+ValidationException: 2 validation errors detected: Value
+'sm-workflow-amt-lightgbm-20260919-185622' at 'hyperParameterTuningJobName' failed to
+satisfy constraint: Member must satisfy regular expression pattern: [a-zA-Z0-9](-*[a-zA-Z0-9]){0,31}
+```
+
+That is 40 characters. **Processing and training job names allow 63, so a convention that fits
+everywhere else fails only here** — and the failure arrives after the candidates are declared
+and the compute is authorised. Budget the name: a `-YYYYMMDD-HHMMSS` stamp is 16 of the 32,
+leaving 15 for everything descriptive. Derive the trial names from a short stem, not from the
+pipeline's own name.
+
+**`hyperparameters_to_keep_static` requires Autotune.** Setting it without enabling Autotune
+raises before the API call:
+
+```
+ValueError: hyperparameters_to_keep_static parameter is set, however Autotune mode is not enabled.
+```
+
+It reads like a way to pin some hyperparameters while searching others. It is not — it belongs
+to Autotune, where AWS chooses the ranges. To hold a value fixed in an ordinary search, pass it
+as a plain hyperparameter and simply leave it out of the ranges.
+
+### Declare the candidates before running them
+
+Write the search space — or the explicit candidate list — into the contract first. Two
+things follow that do not otherwise:
+
+**The count is recorded**, which is what makes the winner's score interpretable. Picking
+the best of six candidates on validation earns a smaller claim than picking the best of
+one, and a reader who does not know the count cannot make that adjustment.
+
+**Stopping is a rule rather than a feeling.** A declared budget — candidate count, wall
+clock, or cost — ends the search at a point chosen before anyone had a favourite.
+
+### The winner's test score is not yet known
+
+Fix the winner on validation, then hand it to `evaluate-and-gate`. Do not look at the
+test score to choose between candidates and then report that score as the evaluation;
+that is the same set consumed twice, and it is indistinguishable in the artefacts from an
+honest single evaluation unless the order was recorded.
+
+A run did this correctly and recorded it: the tuned winner was fixed **before** the test
+period was accessed. That ordering is the claim, so write it down.
+
+## What goes in the contract
+
+```yaml
+spec:
+  baselines:
+    computed: [<name and score per baseline>]
+    strongest: <name>
+  quality:
+    metric: <the metric the gate is denominated in>
+    bound: <derived from the strongest baseline>
+    marginPct: <the declared improvement required>
+    contract: contracts/quality-gate-contract.json   # written at stage 6
+  training:
+    inputDigests: {<channel>: <digest from the processing report>}
+    imageDigest: <sha256:...>
+    resolvedHyperparameters: {<as sent, not as intended>}
+  tuning:
+    method: fixed-candidates | amt-search   # the user's choice, not an inference
+    methodChosenBy: user
+    candidates: [<declared before running>]     # fixed-candidates
+    searchSpace: {<ranges>}                     # amt-search
+    maxJobs: <int>                              # amt-search
+    strategy: Bayesian | Random | Hyperband | Grid   # amt-search, API spelling
+    strategyChosenBy: user
+    iterativeAlgorithm: true                    # Hyperband only
+    budget: <count | wallClock | cost>
+    selectOn: validation
+    winnerFixedBeforeTestAccess: true
+```
+
+## Check it mechanically
+
+```bash
+CHK=$(ls ~/.kiro/powers/installed/*/skills/train-and-tune/scripts/training-check.py \
+      ./skills/train-and-tune/scripts/training-check.py 2>/dev/null | head -1)
+python3 "$CHK" artifacts/baseline-report.json artifacts/training-report.json \
+               artifacts/tuning-report.json
+```
+
+It refuses on: no baselines recorded, a bound not derived from the strongest baseline, a
+bound weaker than a baseline it claims to improve on, an image or input recorded by tag
+instead of digest, a training run with no model artefact, a tuning run carrying a test
+channel, a candidate count that disagrees with the declared list, and a winner whose
+selection is not recorded as preceding test access.
+
+## Prove the refusals fire
+
+Break each record one field at a time and assert non-zero exit. The test-channel refusal
+matters most: add a `test` channel to a tuning record and confirm it is refused, because
+that is the one whose absence cannot be noticed from the outputs.
+
+## References
+
+- `references/baselines-and-search.md` — which baselines are appropriate per task, and
+  what a search space looks like when the model is a tree, a linear model or a network.
+- `leakage-guard` — a baseline that is nearly the target is a leak.
+- `evaluate-and-gate` — reads the bound this stage declared, once.
+- `runtime-and-containers` — what runs the job, and how the image is resolved.

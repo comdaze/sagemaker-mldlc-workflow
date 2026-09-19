@@ -138,7 +138,27 @@ Use these, not the shims.
 | Training configs | `sagemaker.core.training.configs` |
 | Deploy / packaging | `sagemaker.serve.ModelBuilder` |
 | Session | `sagemaker.core.helper.session_helper.Session` (re-exported as `sagemaker.train.Session`) |
-| Pipeline machinery | `sagemaker.core.workflow/` and `sagemaker.mlops/workflow/` — note `sagemaker.mlops` does **not** export `Pipeline` at its top level |
+| Pipeline **primitives** | `sagemaker.core.workflow` — `ConditionEquals`, `ConditionLessThanOrEqualTo`, `JsonGet`, `ParameterInteger`, `ParameterString`, `PropertyFile` |
+| Pipeline **steps** | `sagemaker.mlops.workflow` — `Pipeline`, `ProcessingStep`, `TrainingStep`, `TransformStep`, `ConditionStep`, `FailStep` |
+| Model object | `sagemaker.core.Model`? **No** — `Transformer` imports from `sagemaker.core`, `Model` does not |
+
+**That split cost a real run seven failed imports, so take the two rows literally.** The
+conditions and parameters are in `core`, the steps are in `mlops`, and both are flat modules
+with no submodules to reach into. These all raised `ModuleNotFoundError`, in this order:
+
+```
+sagemaker.core.workflow.steps          sagemaker.core.workflow.pipeline
+sagemaker.core.workflow.condition_step sagemaker.mlops.workflow.pipeline_context
+sagemaker.core.model                   sagemaker.core.configs
+sagemaker.core.source_code             sagemaker.train  (as an attribute of `sagemaker`)
+```
+
+Every one is the shape a v2 habit or a plausible guess produces. **`import sagemaker` then
+`sagemaker.train.…` is the trap worth naming**: the top level exports nothing, so that is an
+`AttributeError`, not an import error, and it reads like the package is broken. Import the
+leaf name directly. When a path is not in the table, list the module rather than guessing —
+`python3 -c "import sagemaker.mlops.workflow as w; print(dir(w))"` settles it in one call,
+and the run that guessed instead spent seven.
 
 **v3 is not a stable target either.** In 3.22.0, `sagemaker.train.configs` is a
 deprecation shim that warns its canonical home is `sagemaker.core.training.configs`
@@ -179,6 +199,51 @@ local directory into the job at runtime, so **changing your training script does
 require rebuilding the container**. You still bring an image — yours, an AWS Deep
 Learning Container, or a third party's — and the SDK injects the code.
 
+## Do not build the image on the user's machine
+
+**Build with CodeBuild, not with local Docker.** A run reached the point of needing a BYOC
+inference image, probed for Docker, and got:
+
+```
+$ docker version --format '{{.Server.Version}}'
+zsh: command not found: docker          # exit 127
+```
+
+That is a **normal machine**, not a broken one. Docker Desktop is a licensed install on a
+corporate laptop, a local build is the wrong architecture whenever the laptop is arm64 and
+the endpoint is x86, and a multi-GB image pushed from a home connection is slow in a way no
+one budgeted for. Requiring it turns "register a model" into an IT ticket.
+
+So the container build is a **cloud** step. Ask the user which they have, and do not assume:
+
+| Route | When | What it costs |
+|---|---|---|
+| **CodeBuild** | the default — a buildspec, a source zip in S3, `aws codebuild start-build` | build minutes; no local tooling at all |
+| `sm-docker` (SageMaker Studio Docker CLI) | inside Studio, where it wraps CodeBuild for you | same, plus a Studio domain |
+| Local `docker build` | the user already has Docker **and** the architecture matches | free, and only then |
+
+Two things the buildspec must get right, because both produce an image that builds and then
+fails at runtime: `--platform linux/amd64` unless the endpoint is explicitly Graviton, and an
+ECR login in `pre_build` (`aws ecr get-login-password | docker login --username AWS
+--password-stdin`) against **the partition's own registry host** — `.amazonaws.com.cn` in
+China, which is the same never-assemble-a-URI rule as below.
+
+**And a third, in China: configure the package and image sources, or the build times out rather
+than failing.** `pypi.org` and Docker Hub are slow to unreachable from inside the partition —
+CodeBuild is inside it too. Prefer `public.ecr.aws` for the base image, set `PIP_INDEX_URL`
+(and `UV_DEFAULT_INDEX`, which uv reads instead) to a China mirror. The table of sources is in
+`ml-planning/references/china-baseline.md`; `FROM python:3.9-slim` with a bare `pip install` is
+the shape that stalls.
+
+**If the base image comes from an ECR mirror, `pre_build` needs two logins, not one.** Reading a
+base image out of a mirror registry and pushing the result to your own are different registries,
+so they are different `get-login-password` calls. One login succeeds and the build then fails on
+the other — at pull time for a missing base, at push time for a missing target — which reads like
+two unrelated faults.
+
+**Check for Docker before writing a plan that needs it, not after.** `command -v docker` is
+one line, and its absence changes the stage's design rather than stopping it.
+
 ## The BYOC contract
 
 From the SageMaker developer guide. These are not conventions to prefer; they are
@@ -211,6 +276,70 @@ the SageMaker AI Inference Toolkit satisfy these conventions — the directory
 locations, the entry point discovery, the serving stack — so use them unless you
 have a reason not to. Reimplementing the contract by hand is where the subtle
 failures come from.
+
+### A `-slim` base image is missing libraries your wheels assume
+
+`pip install` succeeding proves nothing about whether the library can **load**. Many numeric and
+ML wheels link against system shared objects that a slim image does not carry, and the failure
+arrives at *import* time inside the job — not at build time, where you would see it.
+
+**`requirements.txt` structurally cannot express this, which is the root cause rather than an
+aside.** pip resolves Python distributions; a shared library is an OS package. So the one file
+everyone treats as "the dependency list" is blind to an entire class of dependency, and a
+dependency list can be complete, correct, reviewed and still not describe what the image needs.
+
+Two things follow, and neither depends on knowing which library.
+
+**Declare the OS packages as well, in a file beside the Python ones** rather than inline in a `RUN`
+line where nobody reviews them, with a reason per entry — a reader cannot tell from a package name
+what needs it:
+
+```
+# system-packages.txt — one line per package, and why it is here
+<pkg>        # <which import fails without it, and what it dlopens>
+```
+```dockerfile
+COPY system-packages.txt /tmp/
+RUN apt-get update \
+    && sed 's/#.*//' /tmp/system-packages.txt | xargs -r apt-get install -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+**Import every dependency in the build, not just install it.** One `RUN python -c "import a, b, c"`
+layer turns a failed inference job into a failed build, which is cheaper by orders of magnitude —
+and it catches the next such library without anyone having to know its name in advance. That is the
+check to write, because the specific library changes with every framework and the omission does not.
+
+> **Measured instance**, for scale rather than as the rule. An image built `FROM python:3.9-slim`
+> installed a gradient-boosting library cleanly, pushed, registered, and failed in a real batch
+> transform with `OSError: libgomp.so.1: cannot open shared object file`. The OpenMP runtime is
+> missing from slim images and several numeric wheels `dlopen` it; the fix was one
+> `apt-get install libgomp1`. Its `requirements.txt` was correct throughout — two revisions, across
+> eight Dockerfile revisions and one billed failure.
+
+### Choosing `-slim` is the decision that generates all of the above
+
+That same run wrote **eight Dockerfile revisions** and changed base image four times:
+
+```
+12:22  FROM python:3.9-slim
+12:30  FROM <account>.dkr.ecr.<region>.amazonaws.com.cn/sagemaker-scikit-learn:1.2-1-cpu-py3
+12:39  FROM python:3.9-slim                          ← reverted
+12:42  FROM <public-mirror>/python:3.9-slim          ← Docker Hub unreachable
+13:50  + ARG PIP_INDEX_URL=<regional mirror>
+14:03  + vendored wheels, --no-index --find-links    ← index still not working
+15:27  + apt-get install <missing runtime>           ← the transform job had already failed
+```
+
+**It had the right answer at 12:30 and abandoned it.** A regional SageMaker or DLC image is inside
+the partition, needs no public registry and no mirror, and already carries the numeric runtimes,
+because the frameworks it ships need them too. Every line after 12:39 is a consequence of the
+revert: the unreachable pull, the mirror, the vendored wheels, and finally a missing system library
+three hours later and one billed job downstream.
+
+So treat the base image as the load-bearing choice it is. `FROM python:*-slim` is the
+reasonable-looking default that buys a small image and pays for it in the four problems above;
+start from a regional AWS image and add what it lacks, which is usually only your own code.
 
 ## Resolving the image — never assemble a URI
 
@@ -270,7 +399,7 @@ py3`. Do not carry a v2 call site over unchanged.
 
 A tag is a moving pointer. An image referenced by tag makes rollback a fiction,
 because the tag may resolve to different bytes next week. Resolve the tag once,
-record the digest, and use the digest in the release candidate — `governed-release`
+record the digest, and use the digest in the release candidate — `release-and-serve`
 requires `imageDigest` as one leg of its provenance triple for exactly this reason.
 
 ## Distributed and accelerator images
@@ -296,7 +425,7 @@ In order, because the cheap checks eliminate most cases:
 3. **For inference: does `/ping` answer on 8080?** Run the container locally and
    `curl` it before blaming SageMaker.
 4. **For training: did anything reach `/opt/ml/model`?** A job can exit 0 having
-   written nothing. `governed-release`'s first gate exists for this: success means
+   written nothing. `release-and-serve`'s first gate exists for this: success means
    exit code zero **and** the declared artefacts exist.
 5. **Read the failure description**, not only the job status. `/opt/ml/failure` and
    the CloudWatch log stream carry the actual error; `FailureReason` on the job is

@@ -23,6 +23,7 @@ import argparse
 import json
 import re
 import subprocess
+import shutil
 import sys
 import urllib.request
 from pathlib import Path
@@ -127,44 +128,169 @@ def check_mcp_extras(path: Path) -> None:
 def check_stage_catalogue() -> None:
     """The stage catalogue, skills/ and SKILL.md's table must name the same stages.
 
-    plan-lint.py derives each task's expected owner from the catalogue, so a name
-    that drifts out of step with skills/ turns the attribution check from a
-    refusal into a wrong answer. Three copies of the same list exist for good
-    reasons -- one machine-readable, one for the reader, one on disk -- and three
-    copies drift.
+    plan-lint.py derives each task's expected owner, its skippability class, its
+    prerequisites and its execution mode from this one file, so a name that drifts out of
+    step with skills/ turns the attribution check from a refusal into a wrong answer.
+
+    It replaced two flat lists that had already drifted from each other. One declaration
+    cannot disagree with itself; three copies of the same names will.
     """
-    cat = ROOT / "skills" / "ml-planning" / "references" / "stage-catalogue.txt"
+    cat = ROOT / "skills" / "ml-planning" / "references" / "stages.toml"
     if not cat.exists():
-        fail("skills/ml-planning/references/stage-catalogue.txt is missing -- plan-lint.py needs it")
+        fail("skills/ml-planning/references/stages.toml is missing -- plan-lint.py needs it")
         return
 
-    owners: set[str] = set()
-    for line in cat.read_text(encoding="utf-8").splitlines():
-        line = line.split("#", 1)[0].strip()
-        if not line:
-            continue
-        parts = line.split()
-        if len(parts) != 2:
-            fail(f"stage-catalogue.txt: malformed line {line!r} (expected '<stage> <skill>')")
-            continue
-        owners.add(parts[1])
+    try:
+        import tomllib
+    except ImportError:
+        warn("tomllib unavailable, so the stage catalogue is unchecked (needs Python 3.11+)")
+        return
+    try:
+        doc = tomllib.loads(cat.read_text(encoding="utf-8"))
+    except Exception as e:
+        fail(f"stages.toml is not valid TOML: {e}")
+        return
 
+    stages = doc.get("stages") or {}
+    if not stages:
+        fail("stages.toml declares no stages")
+        return
+
+    owners = {s.get("owner") for s in stages.values() if isinstance(s, dict)}
     on_disk = {d.name for d in (ROOT / "skills").iterdir() if (d / "SKILL.md").is_file()}
     for name in sorted(on_disk - owners):
         fail(
-            f"skill {name!r} exists in skills/ but owns no stage in "
-            "stage-catalogue.txt -- plan-lint would reject a task attributed to it"
+            f"skill {name!r} exists in skills/ but owns no stage in stages.toml -- "
+            "plan-lint would reject a task attributed to it"
         )
+    for name in sorted(owners - on_disk):
+        if name:
+            warn(f"stages.toml names owner {name!r}, which is not a skill in skills/")
+
+    # Every stage must declare the fields the rules read. Omitting one used to be silent:
+    # report.py defaulted a missing `execution` to CONDITIONAL, the most permissive class, so
+    # an incomplete declaration quietly became a skippable stage. plan-lint indexed the same
+    # field directly and would have crashed instead. Neither is an answer, so the declaration
+    # is checked here where it is written.
+    CLASSES = {"ALWAYS", "DELIVERABLE", "CONDITIONAL"}
+    MODES = {"inline", "pipeline"}
+    for sid, s in stages.items():
+        if s.get("execution") not in CLASSES:
+            fail(f"stage {sid} declares execution {s.get('execution')!r}; expected one of "
+                 f"{sorted(CLASSES)}. An undeclared class has no rule and must not fall back "
+                 "to the most permissive one.")
+        if s.get("mode") not in MODES:
+            fail(f"stage {sid} declares mode {s.get('mode')!r}; expected one of "
+                 f"{sorted(MODES)}. `[>]` is legal only on a pipeline-mode stage, so an "
+                 "undeclared mode makes that rule unenforceable.")
+        if not s.get("name") or not s.get("owner"):
+            fail(f"stage {sid} is missing a name or an owner.")
+
+    # Every stage a preset names must exist. A preset MAY exclude an ALWAYS stage --
+    # `data-prep-only` legitimately stops before modelling. ALWAYS constrains what may
+    # be skipped once a preset includes it, which is plan-lint's job, not this one.
+    for pname, ids in (doc.get("presets") or {}).items():
+        for sid in ids:
+            if str(sid) not in stages:
+                fail(f"preset {pname!r} names stage {sid}, which stages.toml does not declare")
+
+    # A prerequisite must itself be declared, and a preset that includes a stage should
+    # include what that stage requires -- otherwise the plan cannot satisfy it.
+    for sid, s in stages.items():
+        for req in s.get("requires", []) or []:
+            if str(req) not in stages:
+                fail(f"stage {sid} requires stage {req}, which stages.toml does not declare")
+    ext_all = doc.get("presets-satisfied-externally") or {}
+    for pname, ids in (doc.get("presets") or {}).items():
+        included = {str(s) for s in ids}
+        external = {str(s) for s in (ext_all.get(pname) or [])}
+        for sid in included:
+            for req in (stages.get(sid, {}).get("requires") or []):
+                if str(req) not in included and str(req) not in external:
+                    warn(
+                        f"preset {pname!r} includes stage {sid} but neither includes its "
+                        f"prerequisite {req} nor lists it under "
+                        "presets-satisfied-externally; a plan on this preset cannot "
+                        "satisfy it"
+                    )
+    for pname, ids in ext_all.items():
+        if pname not in (doc.get("presets") or {}):
+            fail(f"presets-satisfied-externally names {pname!r}, which is not a preset")
+        for sid in ids:
+            if str(sid) not in stages:
+                fail(f"presets-satisfied-externally[{pname}] names undeclared stage {sid}")
 
     skill_md = ROOT / "skills" / "ml-planning" / "SKILL.md"
     if skill_md.exists():
         body = skill_md.read_text(encoding="utf-8")
-        for name in sorted(owners):
+        for name in sorted(o for o in owners if o):
             if f"`{name}`" not in body:
                 warn(
-                    f"stage-catalogue.txt names {name!r} but ml-planning's stage table "
-                    "does not mention it; the reader and the linter disagree"
+                    f"stages.toml names {name!r} but ml-planning's stage table does not "
+                    "mention it; the reader and the linter disagree"
                 )
+
+    check_stages_are_named(stages)
+    check_step_stage_vocabulary()
+
+
+def check_import_cleanliness() -> None:
+    """Nothing outside version control is sitting in the tree waiting to be packaged.
+
+    Kiro's "Import power from a folder" copies the WORKING DIRECTORY, not the git tree.
+    `.gitignore` therefore protects the repository and not the artefact: a file ignored
+    because it is machine-local gets packaged into the installed power anyway.
+
+    This is not hypothetical. `.kiro/settings/cli.json` -- one machine's editor settings,
+    ignored on purpose -- was packaged into an installed copy of this power, twice. It was
+    caught the second time only because someone happened to look.
+
+    So the rule that would otherwise be "remember to run git status before importing" is
+    this check instead, in the script you already run before importing. An IGNORED file
+    fails: it is ignored precisely because it should not ship. An UNTRACKED file warns,
+    because work in progress is normal and only the author knows whether it belongs.
+    """
+    if not (ROOT / ".git").exists():
+        warn("not a git repository, so import cleanliness cannot be checked")
+        return
+
+    try:
+        out = subprocess.run(
+            ["git", "status", "--porcelain", "--ignored"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        warn(f"could not run git status, so import cleanliness is unchecked: {e}")
+        return
+
+    if out.returncode != 0:
+        warn(f"git status failed ({out.returncode}), so import cleanliness is unchecked")
+        return
+
+    ignored, untracked = [], []
+    for line in out.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        code, path = line[:2], line[3:].strip()
+        if code == "!!":
+            ignored.append(path)
+        elif code == "??":
+            untracked.append(path)
+
+    for p in ignored:
+        fail(
+            f"{p} is ignored by git but present in the tree. 'Import power from a folder' "
+            "copies the working directory, so an ignored file ships anyway -- and it is "
+            "ignored because it should not. Remove it before importing."
+        )
+    for p in untracked:
+        warn(
+            f"{p} is untracked and would be packaged by a folder import. Commit it or "
+            "remove it, so the installed power matches the repository."
+        )
 
 
 def check_power_md(path: Path) -> bool:
@@ -336,7 +462,259 @@ def check_skills() -> tuple[int, int]:
     return len(manifest), len(repo_owned)
 
 
+def check_regressions(skip: bool) -> None:
+    """Run the two committed suites, so a broken refusal fails validation.
+
+    Every script in this power exists because a rule that stays prose holds only while
+    someone remembers it. The same is true one level up: a suite nobody runs is prose about
+    the rules. The last set of plan-lint fixtures lived in a scratch directory and vanished,
+    which is precisely how the linter reached eleven rules with none of them checked against
+    a plan that ought to pass.
+    """
+    suites = [
+        ("scripts/trial-plan-lint.py", []),
+        ("scripts/trial-control.py", ["skills/ml-planning/scripts"]),
+        ("scripts/trial-fixes.py", []),
+    ]
+    if skip:
+        for name, _ in suites:
+            warnings.append(f"{name} was not run (--no-regressions)")
+        return
+    for name, extra in suites:
+        path = ROOT / name
+        if not path.is_file():
+            fail(f"{name} is missing -- the refusals it covers have no evidence behind them")
+            continue
+        proc = subprocess.run(
+            [sys.executable, str(path), *extra],
+            capture_output=True, text=True, cwd=ROOT,
+        )
+        if proc.returncode != 0:
+            tail = [l for l in (proc.stdout + proc.stderr).splitlines() if "✘" in l][:6]
+            detail = ("\n        " + "\n        ".join(tail)) if tail else ""
+            fail(f"{name} reports failures, so a refusal this power advertises is not "
+                 f"holding.{detail}")
+
+    # Running the suites makes Python cache the modules they import, and this validator
+    # fails on a git-ignored file in the tree. Clean up after ourselves rather than
+    # reporting a fault this check created.
+    for cache in ROOT.rglob("__pycache__"):
+        if ".git" not in cache.parts:
+            shutil.rmtree(cache, ignore_errors=True)
+
+
+
+def check_step_stage_vocabulary() -> None:
+    """`Step N` must not be a heading, because `Stage N` is this power's numbered sequence.
+
+    The word carried four meanings and only one collided. AWS's `ProcessingStep` and
+    `ConditionStep` are identifiers and stay. Generic prose -- "one step at a time" -- is
+    unambiguous and stays. What had to go was a second NUMBERED sequence: `## Step 1..6` inside
+    leakage-guard, which IS stage 4, and `## Step 3: The stage catalogue` in ml-planning, a step
+    whose subject was stages. Those are `Part N` now.
+
+    The check is deliberately narrow -- headings only, and only a numbered one. A rule that
+    flagged every use of the word would fire on 24 AWS identifiers and 62 harmless sentences, and
+    a check that noisy gets silenced rather than heeded.
+    """
+    pattern = re.compile(r"^#{1,6}\s.*\b[Ss]tep\s+\d+", re.M)
+    for p in sorted((ROOT / "skills").rglob("*.md")):
+        for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+            if pattern.match(line):
+                fail(f"{p.relative_to(ROOT)}:{i} heads a section with a numbered 'Step'. "
+                     "`Stage N` is this power's numbered sequence and a second one reads as it -- "
+                     "leakage-guard is stage 4 and once numbered its own sections 1 to 6. Use "
+                     "`Part N`. AWS's *Step class names are identifiers and are not affected.")
+
+
+def check_content_stays_general() -> None:
+    """Refuse the validation project's vocabulary, and unlabelled algorithm names, in skill bodies.
+
+    This power is a general workflow. It was built alongside one validation project, and every
+    lesson in it came from that project -- which makes leakage the default rather than the
+    exception. A measured value may be the EVIDENCE for a rule; it may never be the rule's
+    CONTENT. The distinction survived as prose for the whole build and had drifted in eight places
+    by the time anyone counted: two contract examples carried that project's own baseline name, and
+    a container section had been written with one library as its subject rather than as its
+    example.
+
+    So two tiers, because the two cases differ in kind.
+
+    Domain vocabulary is never legitimate -- no reader of a general skill needs it, in a code
+    block or out of one -- so it fails wherever it appears.
+
+    A framework name often IS legitimate: `image_uris.retrieve(framework="xgboost")` needs a
+    framework, and "py_version is ignored for xgboost but raises for pytorch" is a fact about the
+    SDK rather than about gradient boosting. What is not legitimate is a framework name in
+    load-bearing prose, where it narrows a general rule to one library. The checkable proxy: a
+    fenced code block, an indented block, or a blockquote is presentation or labelled evidence;
+    a bare prose line is the rule itself.
+    """
+    # From the validation project. None of these belong in a general workflow at all.
+    domain = [
+        "day-ahead", "电价", "MWh", "出清", "trade_date", "settlement price",
+        "spot price", "grid load", "load forecast",
+    ]
+    # Legitimate in an API example or an SDK-behaviour note; not in guidance prose.
+    frameworks = [
+        "lightgbm", "xgboost", "catboost", "prophet", "statsmodels",
+        "libgomp", "scikit-learn", "sklearn",
+    ]
+    for body in sorted((ROOT / "skills").glob("*/SKILL.md")):
+        rel = body.relative_to(ROOT)
+        lines = body.read_text(encoding="utf-8").splitlines()
+        in_fence = False
+        for n, line in enumerate(lines, 1):
+            if line.lstrip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            low = line.lower()
+            for term in domain:
+                if term.lower() in low:
+                    fail(f"{rel}:{n} uses {term!r}, which is vocabulary from the validation "
+                         "project rather than from SageMaker. A measurement can be a rule's "
+                         "evidence and never its content -- restate it in the terms any project "
+                         "would use.")
+            if in_fence or line.startswith((">", "    ", "\t", "|")):
+                continue                    # example, labelled evidence, or a table cell
+            for term in frameworks:
+                if term in low:
+                    # WARN rather than fail, and deliberately. Some prose uses are legitimate --
+                    # "py_version is ignored for xgboost but raises for pytorch" is a fact about
+                    # the SDK, not about gradient boosting -- and no mechanical test separates
+                    # those from a rule that has been narrowed to one library. Naming the line for
+                    # a human is honest; failing it would force the text to be mangled around the
+                    # checker, which is how a control becomes something to work around.
+                    warn(f"{rel}:{n} names {term!r} in prose. Legitimate if it is a fact about "
+                         "the SDK or the platform; a leak if a general rule has been narrowed to "
+                         "one library. Check which, and move a measured case into a code block "
+                         "or a blockquote labelled as an instance.")
+
+
+def check_stages_are_named(stages: dict) -> None:
+    """Every stage must be named in the body of the skill that owns it."""
+    # Every stage must be NAMED in its owner's body. The skills are invoked per stage -- next.py
+    # dispatches `stage: 13, skill: release-and-serve` -- so a body that never says which of its
+    # sections serve stage 13 leaves the agent to read 369 lines and guess, or to apply stage 12's
+    # gates to 13. Two skills owned six stages between them and mentioned none of them; a third
+    # had two sections filed under the wrong stage heading, one announcing it in its own title.
+    # No existing check could see any of that.
+    for sid, s in stages.items():
+        if not sid.isdigit():
+            continue                      # cross-cutting owners have no stage number to name
+        owner = s.get("owner")
+        body = ROOT / "skills" / str(owner) / "SKILL.md"
+        if not body.is_file():
+            continue                      # check_skills reports a missing skill
+        text = body.read_text(encoding="utf-8")
+        if not re.search(rf"\bstages?\b[^.\n]{{0,24}}\b{sid}\b", text, re.I):
+            fail(f"stage {sid} ({s.get('name')}) is owned by {owner}, whose SKILL.md never names "
+                 f"it. A skill invoked for one stage has to say which of its content applies to "
+                 "that stage; without it the reader guesses or reads everything.")
+
+
+def check_installed_copy_is_current() -> None:
+    """Compare the installed power against this repository, because a run uses the copy.
+
+    Kiro copies a power into ~/.kiro/powers/installed at import time. So an edited clone and a
+    running agent can be different software, and nothing anywhere says so. A validation run
+    exercised a snapshot taken before half of one afternoon's gates existed -- six hours of work
+    it could not have used -- and it surfaced only because the newer code writes a ledger field
+    the older one does not.
+
+    A WARN rather than a FAIL, deliberately. The repository being ahead of an install is the
+    normal state while editing, and a check that fails on the normal state is a check people
+    learn to skip. But it names the files, so "re-import before the next trial" becomes a thing
+    someone can see rather than remember.
+    """
+    name = (ROOT / "plugin.json")
+    try:
+        pid = json.loads(name.read_text(encoding="utf-8")).get("name") or ROOT.name
+    except Exception:  # noqa: BLE001 - the schema check reports a malformed manifest
+        pid = ROOT.name
+    installed = Path.home() / ".kiro" / "powers" / "installed" / pid
+    if not installed.is_dir():
+        return  # never imported on this machine; nothing to compare
+
+    differ, missing = [], []
+    for src in sorted(ROOT.rglob("*")):
+        if not src.is_file() or ".git" in src.parts or "__pycache__" in src.parts:
+            continue
+        rel = src.relative_to(ROOT)
+        if rel.parts[0] in ("scripts", "docs", ".github"):
+            continue  # not shipped into a run's reach
+        dst = installed / rel
+        if not dst.is_file():
+            missing.append(str(rel))
+        elif dst.read_bytes() != src.read_bytes():
+            differ.append(str(rel))
+
+    if not differ and not missing:
+        return
+    n = len(differ) + len(missing)
+    sample = ", ".join((differ + missing)[:3]) + ("…" if n > 3 else "")
+    warnings.append(
+        f"the installed copy at {installed} differs from this repository in {n} file(s) "
+        f"({sample}). A RUN USES THE INSTALLED COPY, so anything changed here is not in effect "
+        "until the power is re-imported -- one trial drew conclusions from a snapshot that "
+        "predated half its gates."
+    )
+
+
+def check_docs_track_code() -> None:
+    """Every preset and every user-signature field must be named where a reader will find it.
+
+    This power's own taxonomy lists "this README staying in step with the skills" as ADVICE --
+    the tier that holds only while someone remembers. Nobody did: five mechanisms reached the
+    scripts and the skill bodies while both README.md and docs/DESIGN.md still described the
+    version before them, and `realtime-serving` existed in stages.toml alone, so a preset added
+    precisely because a legitimate scope had no name went on having no name a user could see.
+
+    Drift was silent because nothing compared the two. It is not advice any more.
+    """
+    toml_path = ROOT / "skills" / "ml-planning" / "references" / "stages.toml"
+    if not toml_path.is_file():
+        return
+    try:
+        import tomllib
+        doc = tomllib.loads(toml_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001 - a malformed file is reported by the other check
+        warn(f"stages.toml could not be parsed for the docs cross-check ({exc})")
+        return
+
+    body = (ROOT / "skills" / "ml-planning" / "SKILL.md")
+    body_text = body.read_text(encoding="utf-8") if body.is_file() else ""
+    readme = (ROOT / "README.md")
+    readme_text = readme.read_text(encoding="utf-8") if readme.is_file() else ""
+
+    for name in (doc.get("presets") or {}):
+        if name not in body_text:
+            fail(f"preset {name!r} is declared in stages.toml and named nowhere in "
+                 "ml-planning/SKILL.md. A scope a user cannot discover is a scope they will "
+                 "describe in prose instead, which is what silences the checks that read PRESET.")
+        if name not in readme_text:
+            warn(f"preset {name!r} is not named in README.md")
+
+    # A field that carries the user's signature is the whole point of the rule requiring it, so
+    # it has to be findable outside the source. The list grew as the audit did -- eight decisions
+    # now -- and adding a signature field without naming it anywhere a reader looks would put it
+    # straight back in the state this check exists to catch.
+    for field in ("methodChosenBy", "strategyChosenBy", "computeChosenBy", "algorithmChosenBy",
+                  "marginChosenBy", "metricChosenBy", "scopeChosenBy", "splitChosenBy",
+                  "algorithmAlternatives", "waived-by", "APPROVED", "COMPUTE", "useSpot"):
+        where = [n for n, t in (("README.md", readme_text),
+                                ("skills/*/SKILL.md", "".join(
+                                    p.read_text(encoding="utf-8")
+                                    for p in sorted((ROOT / "skills").glob("*/SKILL.md")))))
+                 if field in t]
+        if not where:
+            fail(f"{field} is required by a script and appears in neither README.md nor any "
+                 "SKILL.md. A rule nobody can read is a rule that will be met by accident or "
+                 "not at all.")
+
+
 def check_no_escaping_paths() -> None:
+
     """The checklist forbids referencing paths outside the plugin root."""
     for path in ROOT.rglob("*"):
         if path.is_symlink():
@@ -354,6 +732,11 @@ def main() -> int:
         "--allow-skip-schema",
         action="store_true",
         help="do not fail when a schema cannot be loaded (offline, no jsonschema)",
+    )
+    parser.add_argument(
+        "--no-regressions",
+        action="store_true",
+        help="skip the committed fixture suites (they are the evidence; skipping is a WARN)",
     )
     args = parser.parse_args()
 
@@ -374,6 +757,11 @@ def main() -> int:
     check_no_escaping_paths()
     has_power_md = check_power_md(ROOT / "POWER.md")
     check_stage_catalogue()
+    check_docs_track_code()
+    check_content_stays_general()
+    check_installed_copy_is_current()
+    check_regressions(args.no_regressions)
+    check_import_cleanliness()
 
     for w in warnings:
         print(f"WARN  {w}")
