@@ -85,8 +85,42 @@ the network.
 |---|---|
 | **AWS Public ECR** (`public.ecr.aws/docker/library/python:3.11-slim`) | in-partition, no credentials, no rate limit — the first thing to try |
 | An AWS DLC or SageMaker image in the region's own registry | already the right shape for SageMaker; resolve it, never assemble the URI |
+| **`nwcdlabs/container-mirror`** in `cn-northwest-1` ECR | covers what Public ECR does not — see the table below |
 | Aliyun ACR mirror (`registry.cn-hangzhou.aliyuncs.com`) | reliable; namespace differs from Docker Hub's |
 | DaoCloud (`docker.m.daocloud.io`) | a drop-in prefix for a Docker Hub reference |
+
+### The nwcdlabs mirror, and the rule for rewriting a path
+
+`public.ecr.aws` carries the Docker Hub official library, but **not `gcr.io`, `quay.io` or
+`k8s.gcr.io`** — and a base image or sidecar from one of those has nowhere else to come from
+inside the partition. [nwcdlabs/container-mirror](https://github.com/nwcdlabs/container-mirror)
+mirrors all four into one ECR registry in `cn-northwest-1`. The transformation is mechanical:
+
+| Original | Mirrored |
+|---|---|
+| `[library/]repo:tag` (Docker Hub) | `<reg>/dockerhub/[library/]repo:tag` |
+| `gcr.io/ns/repo:tag` | `<reg>/gcr/ns/repo:tag` |
+| `k8s.gcr.io/repo:tag` | `<reg>/gcr/google_containers/repo:tag` |
+| `quay.io/ns/repo:tag` | `<reg>/quay/ns/repo:tag` |
+| `602401143452.dkr.ecr.us-west-2.amazonaws.com/repo:tag` (global ECR) | `<reg>/amazonecr/repo:tag` |
+
+where `<reg>` is `048912060910.dkr.ecr.cn-northwest-1.amazonaws.com.cn`.
+
+**Four things to know before depending on it**, none of which the path format tells you:
+
+- **`docker login` is still required.** It is an ECR registry, so pull needs
+  `ecr:GetAuthorizationToken` — the one exception is EKS or kops on EC2, where the node role
+  covers it. In CodeBuild that means a *second* ECR login in `pre_build`: one to read the base
+  image, one to push the result, and they are different registries.
+- **The registry lives in `cn-northwest-1`.** Pulling from `cn-north-1` works but crosses regions,
+  which costs transfer and adds latency to every build and every endpoint cold start.
+- **Not every tag is there.** The repository publishes a `mirrored-images.txt` inventory and a
+  request process for adding one. Check it before writing the path — a missing tag fails at pull
+  time, inside a job, which is the most expensive place to find out.
+- **It is a labs project, not an AWS service.** No SLA, and the wiki above was last indexed
+  2025-05-20. **I read the documentation and did not pull an image**, so treat the registry id as
+  documented rather than verified from here, and confirm it with one `docker pull` before a
+  pipeline depends on it.
 
 **`FROM python:3.9-slim` is the line to look for.** A real run's Dockerfile had exactly that plus
 a bare `pip install -r requirements.txt`, submitted to CodeBuild in `cn-northwest-1`. Its `BUILD`
@@ -95,7 +129,9 @@ established**, because the same run lacked `logs:CreateLogStream` and could not 
 would say. Both are worth fixing before the next attempt precisely because one hid the other.
 
 **Rewriting a Dockerfile's sources is a change to what gets installed.** Say which mirror you
-used and why, so the next person can tell a mirror problem from a code problem.
+used and why, so the next person can tell a mirror problem from a code problem. A mirrored tag is
+not a guarantee of the same digest as upstream — pin by digest for anything that must be
+reproducible, exactly as `runtime-and-containers` says for the AWS registries.
 
 ## No console is a workflow constraint, not a missing feature
 

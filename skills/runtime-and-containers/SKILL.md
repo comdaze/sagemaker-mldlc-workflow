@@ -235,6 +235,12 @@ CodeBuild is inside it too. Prefer `public.ecr.aws` for the base image, set `PIP
 `ml-planning/references/china-baseline.md`; `FROM python:3.9-slim` with a bare `pip install` is
 the shape that stalls.
 
+**If the base image comes from an ECR mirror, `pre_build` needs two logins, not one.** Reading a
+base image out of a mirror registry and pushing the result to your own are different registries,
+so they are different `get-login-password` calls. One login succeeds and the build then fails on
+the other — at pull time for a missing base, at push time for a missing target — which reads like
+two unrelated faults.
+
 **Check for Docker before writing a plan that needs it, not after.** `command -v docker` is
 one line, and its absence changes the stage's design rather than stopping it.
 
