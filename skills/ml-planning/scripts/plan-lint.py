@@ -59,6 +59,11 @@ LAST_DONE_RE = re.compile(r"^LAST_DONE:\s*(?P<val>.+?)\s*$")
 APPROVED_RE = re.compile(r"^APPROVED:\s*(?P<val>.+?)\s*$")
 COMPUTE_RE = re.compile(r"^COMPUTE:\s*(?P<val>.+?)\s*$")
 PARTITION_RE = re.compile(r"^PARTITION:\s*(?P<val>.+?)\s*$")
+# Optional. Which credentials can read this run's executions -- see poll.py. Not checked
+# here, because a plan that never submits anything has no use for it.
+AWS_PROFILE_RE = re.compile(r"^AWS_PROFILE:\s*(?P<val>\S+)\s*$")
+# The run a `[>]` task is waiting on. The LAST one counts, because a resubmission appends.
+EXECUTION_ARN_RE = re.compile(r"execution:\s*(?P<arn>arn:\S+)")
 LAST_DONE_VALUE_RE = re.compile(r"^(?P<num>\d+)\s*@\s*(?P<ts>\S+)$")
 
 
@@ -99,6 +104,8 @@ class Task:
         )
         self.asked = bool(ASKED_RE.search(text))
         self.instead_of = bool(INSTEAD_RE.search(text))
+        hits = EXECUTION_ARN_RE.findall(text)
+        self.execution = hits[-1].rstrip(".,;)") if hits else None
 
     @property
     def marker(self) -> str | None:
@@ -165,6 +172,10 @@ def parse(lines: list[str]) -> tuple[dict[str, tuple[int, str]], list[Task]]:
         m = PARTITION_RE.match(line)
         if m:
             header.setdefault("PARTITION", (line_no, m.group("val")))
+            continue
+        m = AWS_PROFILE_RE.match(line)
+        if m:
+            header.setdefault("AWS_PROFILE", (line_no, m.group("val")))
             continue
         m = APPROVED_RE.match(line)
         if m:
@@ -664,6 +675,15 @@ def check_prerequisites(tasks: list[Task], stages: dict, r: Report) -> None:
     The old ordering rule compared task numbers, which encodes an assumption the stage
     graph does not make: stage 13 requires 10 and not 12, and no rule based on integers
     can know that.
+
+    ONE EXCEPTION, and it had been documented for as long as `[>]` existed without being
+    allowed. `[>]` is uncapped because one Pipeline submission legitimately starts several
+    stages -- and this check refused exactly that: stage 6 `[>]` beside stage 5 `[>]` failed
+    as an unsettled prerequisite. So a run could only mark the FIRST stage of its own
+    Pipeline as submitted, the rest sat at `[ ]` while they ran, and they later reached `[x]`
+    without ever having been `[>]` -- which is to say without the remote status ever being
+    read. A `[>]` prerequisite now passes when it names the SAME execution: that Pipeline's
+    own graph enforces the order, and `report.py` still refuses `[x]` until the run says so.
     """
     cat = stages["stages"]
     by_stage = {t.stage: t for t in tasks if t.stage}
@@ -676,6 +696,9 @@ def check_prerequisites(tasks: list[Task], stages: dict, r: Report) -> None:
             continue
         for req in s.get("requires", []):
             rt = by_stage.get(str(req))
+            if (rt is not None and t.marker == "[>]" and rt.marker == "[>]"
+                    and t.execution and t.execution == rt.execution):
+                continue
             if rt is None:
                 r.fail(
                     "prerequisite",

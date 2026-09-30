@@ -206,6 +206,13 @@ hand.
 a remote result". And `PRESET` coverage, because a plan declared sixteen stages and wrote
 fourteen tasks, with contiguous numbering so nothing looked wrong.
 
+**Two of those rules contradicted each other, and nothing noticed until `poll.py` needed both.**
+`mode` made `[>]` uncapped so one submission could put several stages in flight; `requires`
+refused a `[>]` whose prerequisite was itself `[>]`. So only the first stage of a Pipeline could
+ever be marked submitted, and the rest reached `[x]` without the run being read — harmless while
+nothing read it, and a hole the moment `report.py` started to. A `[>]` prerequisite on the same
+execution ARN now passes; the Pipeline's own graph is what orders those stages.
+
 **The validator then caught two contradictions in this design**, which is the part worth
 recording. Declaring stages 4, 6, 7, 9 and 10 as `ALWAYS` while keeping three presets that
 exclude them made those presets unsatisfiable — so `ALWAYS` means *not skippable once a
@@ -317,6 +324,7 @@ that only lists intentions is the half nobody can check later.
 | `next.py` / `report.py` | the agent no longer decides whether work remains | a plan edited by hand stops earning directives until reconciled |
 | Keeping `kiro-power-sagemaker-tabular-mlops` | a regression comparison with a complete end-to-end record | two powers to keep in step, and `monitor-and-retrain` is no longer byte-identical to its source |
 | Consulting each stage's gate from `report.py` | `[x]` now means the gate said yes, not that a file exists | five stages declare a `gate` script and two a `verdict` field; a gate that cannot run blocks the report |
+| `poll.py`, and `report.py` reading the run | a submission is followed to its verdict in the conversation, and `[x]` off `[>]` means SageMaker says the run succeeded | every `[>]` report and every move off `[>]` makes a Describe call, so both need the `aws` CLI and credentials that can see the run; it waits only while a session is open — notification (EventBridge to SNS) was rejected because it has to be deployed, and this power's users are not the people who deploy it |
 | `APPROVED:` before any execution directive | the plan-approval rule stopped being prose | an agent can write the line itself, so it is attributable rather than proven |
 | Naming the cost decisions after the user | the tool stopped deciding while looking like it enforced | four more required fields, and `useSpot: false` must be written rather than assumed |
 | China partition as the verified baseline | every capability claim carries a verdict someone measured | content reads as more regional than it is, and a reader outside that partition pays attention tax |

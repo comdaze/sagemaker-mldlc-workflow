@@ -41,6 +41,7 @@ S=$(dirname "$(ls ~/.kiro/powers/installed/*/skills/ml-planning/scripts/next.py 
      ./skills/ml-planning/scripts/next.py 2>/dev/null | head -1)")
 python3 "$S/next.py" PLAN.md --artifacts artifacts/    # what now?
 python3 "$S/report.py" --task N --state x --artifact PATH   # what happened
+python3 "$S/poll.py" --task N      # a submitted run: wait for how it ended, in this turn
 ```
 
 The approval line exists because a run wrote its plan and, in the same turn, delivered
@@ -201,6 +202,7 @@ reading the conversation, and nothing else may be the authority on what has been
 # Plan
 
 PARTITION: aws-cn
+AWS_PROFILE: my-cn-profile
 SDK: 3.22.0
 PRESET: full-lifecycle
 APPROVED: "go ahead with this plan" @ 2026-09-16T17:35:00+08:00
@@ -211,6 +213,12 @@ LAST_DONE: 2 @ 2026-09-16T17:40:00+08:00
 3. [?] **[Task]** — [what a person has to decide]. _(Stage: 5 | Skill: none; would be: data-pipeline)_
 4. [ ] **[Task]** — [what will happen]. _(Stage: 6 | Skill: none; would be: train-and-tune)_
 ```
+
+**`AWS_PROFILE` names the credentials that can read this run's executions**, and it is the
+one header line that is optional — a plan that never submits anything has no use for it.
+Write it in part 1, once the caller ARN confirms the profile. `poll.py` and `report.py` read
+it; without it they use whatever the CLI defaults to, which on a machine holding several
+accounts is often another partition, and that failure reads exactly like a missing run.
 
 **A plan with nothing finished yet writes `LAST_DONE: none`, not `0`.** That is not a
 nicety: `0 @ <timestamp>` is refused, because a cursor naming a task that is not `[x]`
@@ -252,7 +260,7 @@ but only when the user says so, and a plan that skips *all* of them is refused.
 ### `[>]`: submitted to a remote executor
 
 ```markdown
-5. [>] **Process the data** — execution: arn:aws-cn:sagemaker:…:pipeline-execution/abc123
+5. [>] **Process the data** — execution: arn:aws-cn:sagemaker:cn-north-1:111122223333:pipeline/my-pipeline/execution/abc123
    _(Stage: 5 | Skill: data-pipeline)_
 ```
 
@@ -260,7 +268,34 @@ but only when the user says so, and a plan that skips *all* of them is refused.
 legitimately starts several stages — a run put five in flight and wrote `[R]` on all five,
 the closest wrong answer its vocabulary offered. It requires `execution:` naming the run, is
 legal only on a `mode = "pipeline"` stage, and is not terminal: nothing downstream may treat
-it as settled. `references/control-inversion.md` has the rest.
+it as settled. Stages of the same submission may all be `[>]` on the **same** ARN; the
+prerequisite rule lets that through and nothing else.
+
+**A submission is not a result, and the run is not over at the console link.** After the
+submit, report `[>]` and run `next.py` again before ending the turn: it dispatches `poll`, and
+
+```bash
+python3 "$S/poll.py" --plan PLAN.md --task 5        # waits up to 20 min per call
+```
+
+ends on `SUCCEEDED`, `FAILED` (with the failing step, its reason and the tail of its container
+log), `STOPPED`, or `RUNNING` — each with the next command. On `RUNNING`, call it again. Give the
+call a timeout above `--wait-min`, or lower `--wait-min` to fit the harness. Stop early only if
+the user says to; then hand them the ARN and say `next.py` resumes there. Tell the user the
+outcome in the conversation.
+
+`report.py` reads the run itself, rather than taking the agent's word for it:
+
+- `[>]` needs the full ARN the API returned, in the plan's partition, and SageMaker must be able
+  to describe it. A bare id, or an ARN nothing can find, is refused.
+- a task leaves `[>]` only once its run has ended. `[x]` while it is still `Executing` is
+  refused, and so is `[R]`: a run cannot stop being tracked while it is still billing.
+- `[x]` needs the run to have succeeded. When a quality gate inside the Pipeline refused, the
+  execution is `Failed` although the earlier stages worked; `--step <that stage's step names>`
+  records them against those steps, each of which must read `Succeeded`.
+
+For stage 14, which is inline, `poll.py --execution <endpoint ARN>` waits for `InService`; the
+smoke request still decides. `references/control-inversion.md` has the rest.
 
 ### `[?]` means you asked, `[~]` means you went round it, and an answer must move the state
 
@@ -368,7 +403,9 @@ artefact on disk — and reverts its own write if the result fails `plan-lint.py
 **consults the stage's gate rather than trusting that one ran**: where the artefact records its
 own verdict it reads the declared field, and where the gate is a separate program it runs it.
 Until that existed, `[x]` meant only that a file of the right name was present, so a gate that
-had said no could still be recorded as passed.
+had said no could still be recorded as passed. The same holds for a remote run: **it reads the
+execution's status from SageMaker** before a task leaves `[>]`, so `[x]` after a submission
+means the run succeeded, not that the agent said so.
 `references/control-inversion.md` has the dispatch order, every refusal, and the two things
 this layer cannot do.
 

@@ -463,7 +463,7 @@ def check_skills() -> tuple[int, int]:
 
 
 def check_regressions(skip: bool) -> None:
-    """Run the two committed suites, so a broken refusal fails validation.
+    """Run the committed suites, so a broken refusal fails validation.
 
     Every script in this power exists because a rule that stays prose holds only while
     someone remembers it. The same is true one level up: a suite nobody runs is prose about
@@ -475,6 +475,9 @@ def check_regressions(skip: bool) -> None:
         ("scripts/trial-plan-lint.py", []),
         ("scripts/trial-control.py", ["skills/ml-planning/scripts"]),
         ("scripts/trial-fixes.py", []),
+        # A fake `aws` on PATH stands in for SageMaker, so the rules about remote runs --
+        # followed to a verdict, and read before a task may leave [>] -- run offline.
+        ("scripts/trial-poll.py", ["skills/ml-planning/scripts"]),
     ]
     if skip:
         for name, _ in suites:

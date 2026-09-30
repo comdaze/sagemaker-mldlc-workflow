@@ -384,6 +384,12 @@ not for a status, and verify the identity of what is actually deployed rather th
 what was requested.** A row count that equals the input's and contains no NaN is a
 product; `Completed` is a status.
 
+The status still has to arrive before the product can be checked, and it arrives in the
+session, not in the console. For stage 13, the task is `[>]` on the transform job's or the
+Pipeline execution's ARN, and `next.py` dispatches `poll`. For stage 14, which is inline, `ml-planning/scripts/poll.py --execution
+<endpoint ARN>` waits until `InService` or `Failed` — with the endpoint's log tail if it
+failed — and the smoke request comes after that, in the same turn.
+
 Two consequences of a batch mode worth stating in the plan rather than
 discovering later: it has **no data capture**, so production drift has nowhere to
 land until either a real-time endpoint with capture exists or the batch inputs are

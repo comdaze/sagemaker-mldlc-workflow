@@ -310,6 +310,16 @@ lowest-numbered ready task, or report complete. Prerequisites come from `stages.
 on integers knows that. Against that run's own plan it answers `repair-plan: stages missing
 14, 15, 16`.
 
+**A submitted run is followed to its end, in the conversation.** A pipeline-mode stage ends at
+a submission, and the `poll` directive used to say only "check the execution" — so a stage
+could end on a job submitted and a pointer to the console. Now the directive names
+`poll.py --task N` and says to stay in the turn. `poll.py` waits in 20-minute segments and ends
+on `SUCCEEDED`, `FAILED` — with the failing step, its reason and the tail of its container
+log — `STOPPED`, or `RUNNING`, each with the next command. It is read-only, needs only the
+`aws` CLI that submitted the run, and takes the profile from an `AWS_PROFILE:` line in the
+plan. Nothing is deployed for it; the trade is that it waits only while a session is open, and
+a closed session resumes at the same `poll` next time.
+
 `report.py` is the only sanctioned writer of task state. It refuses what the stage declares
 must not happen, and it **writes, re-lints, and reverts its own write** if the result would
 fail — so the plan is lint-clean after every report, not just after the ones someone
@@ -533,7 +543,8 @@ python3 skills/evaluate-and-gate/scripts/quality-gate.py \
 | Script | Refuses on |
 |---|---|
 | `next.py` | **it decides the order, so the agent does not** — no `PRESET`, a plan `plan-lint.py` rejects, a ledger digest that disagrees with the plan, or unfinished work with nothing dispatchable. A preset stage with no task at all gets a `repair-plan` directive instead of a violation list |
-| `report.py` | **the only sanctioned writer of task state** — `[S]` on an `ALWAYS` stage, `[S]` on a `DELIVERABLE` without `waived-by: user`, `[x]` when the stage's declared artefact is not on disk, `[>]` on a stage whose mode is not `pipeline`, any state change downstream of a stage whose `holds` is `hard`, and any execution-stage report before the plan carries an `APPROVED:` line. It also **consults the gate rather than trusting one ran**: where the artefact records its own verdict it reads the declared field, and where the gate is a separate program it runs it. Writes, re-lints, and reverts its own write if the result would fail |
+| `report.py` | **the only sanctioned writer of task state** — `[S]` on an `ALWAYS` stage, `[S]` on a `DELIVERABLE` without `waived-by: user`, `[x]` when the stage's declared artefact is not on disk, `[>]` on a stage whose mode is not `pipeline` or on an execution SageMaker cannot describe, **any move off `[>]` while the run is still going, `[x]` off `[>]` unless the run succeeded** (or `--step` names this stage's own succeeded steps, for a Pipeline a gate stopped), any state change downstream of a stage whose `holds` is `hard`, and any execution-stage report before the plan carries an `APPROVED:` line. It also **consults the gate rather than trusting one ran**: where the artefact records its own verdict it reads the declared field, and where the gate is a separate program it runs it. Writes, re-lints, and reverts its own write if the result would fail |
+| `poll.py` | **it reads the run, and writes nothing** — an execution named by anything but a SageMaker ARN, an ARN in another partition than the plan's, credentials that cannot see it, or a status it has no reading for. Otherwise it waits in segments and exits `0` `SUCCEEDED`, `1` `FAILED`/`STOPPED` with the failing step and its log tail, or `3` `RUNNING` |
 | `plan-lint.py` | numbering, one state marker per task, at most one `[-]`, no `[x]` above an unsettled task, `[S]` outside its stage's execution class, `[!]` without `refused:` and a live `blocks:`, `[>]` without `execution:` or on an inline stage, a `PRESET` whose stages the tasks do not cover, `LAST_DONE` disagreeing with the highest `[x]`, and a `Skill:` that does not match the owner its `Stage:` implies |
 | `contract-check.py` | a dataset identity with a hole, a `versionId` that is null or the string `"null"`, an unverified read-back, an absent completeness assertion, partition counts that do not reconcile, a group key in two partitions, overlapping boundaries, a transform fitted outside the training partition, outputs with no digest |
 | `leakage-screen.py` | **it computes on the data, standard library only, so it runs inside a processing job** — a correlation or single-input AUC above the declared bound, or a candidate whose error used directly as the prediction lands within the declared margin of the quality bound. That last one is exemptable, and only that one: naming an input in `assumedKnownAtPredictionTime` **with a reason** turns its direct-prediction refusal into a recorded assumption carrying the measurement, because the bound is derived from the strongest baseline and a baseline is usually a column of the data — so any good column scores near it. A correlation of 0.999 is not exemptable, and the probe is passed an empty exemption map so no contract can disarm the self-check. Exits 2 rather than reporting when it cannot be trusted: no bounds declared, or **its own built-in probe did not fire** |

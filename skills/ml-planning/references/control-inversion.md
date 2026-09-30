@@ -62,6 +62,11 @@ python3 $S/next.py PLAN.md --artifacts artifacts/     # what now?
 # ... do exactly that one thing ...
 python3 $S/report.py --task 5 --state x --artifact artifacts/processing-report.json
 python3 $S/next.py PLAN.md --artifacts artifacts/     # what now?
+
+# a pipeline-mode stage ends at a submission, so it goes round once more, in the same turn:
+python3 $S/report.py --task 5 --state '>' --execution <arn> --compute "<what it ran on>"
+python3 $S/poll.py --plan PLAN.md --task 5            # until SUCCEEDED / FAILED / STOPPED
+python3 $S/report.py --task 5 --state x --artifact artifacts/processing-report.json --compute "…"
 ```
 
 `next.py --json` emits the directive as JSON for a caller that would rather parse than read.
@@ -73,7 +78,7 @@ python3 $S/next.py PLAN.md --artifacts artifacts/     # what now?
 |---|---|---|
 | 1 | `repair-plan` | a preset stage has no task at all — asked **before** the lint gate, so truncation arrives as work rather than as a violation |
 | 2 | `finish` | a task is `[-]`: local work in hand outranks new work |
-| 3 | `poll` | a task is `[>]`: a remote execution has not resolved |
+| 3 | `poll` | a task is `[>]`: a remote execution has not resolved. The directive carries the `poll.py` command and **STAY IN THIS TURN** — the mirror image of `DECIDE FIRST` |
 | 4 | `await-answer` | a task is `[?]`: a question is outstanding, and only `[~]` may proceed alongside it |
 | 5 | `execute` | lowest-numbered unsettled task whose **declared** prerequisites are all settled |
 | 6 | `complete` | every stage the preset declares is settled |
@@ -105,7 +110,9 @@ Every rule comes from `stages.toml`, not from the script:
 | `[S]` | the stage is `DELIVERABLE` and `--waived-by user` is absent |
 | `[S]` | the stage is `CONDITIONAL` and `--reason` is absent |
 | `[x]` | the stage declares a `produces` and no given path exists on disk |
-| `[>]` | the stage's `mode` is not `pipeline`, or `--execution` is absent |
+| `[>]` | the stage's `mode` is not `pipeline`; `--execution` is absent, is not a SageMaker ARN, sits in another partition than `PARTITION`, or names nothing SageMaker can describe |
+| anything, from `[>]` | the run is still going (or reports a status `poll.py` has no reading for) |
+| `[x]`, from `[>]` | the run did not succeed — unless `--step` names this stage's own steps and each reads `Succeeded` |
 | `[!]` | `--refused` or `--blocks` is absent |
 | `[~]` | `--instead-of` or `--blocked-by` is absent |
 | `[?]` | `--asked` is absent |
@@ -176,7 +183,7 @@ awaiting a remote result", and wrote `[R]` on all five. **The vocabulary forced 
 record.**
 
 ```markdown
-5. [>] **Process the data** — execution: arn:aws-cn:sagemaker:cn-north-1:…:pipeline-execution/abc123
+5. [>] **Process the data** — execution: arn:aws-cn:sagemaker:cn-north-1:111122223333:pipeline/my-pipeline/execution/abc123
    _(Stage: 5 | Skill: data-pipeline)_
 ```
 
@@ -184,6 +191,60 @@ record.**
 `execution:` naming the run — an id that exists can be checked, and one that does not was
 invented — and it is only legal on a stage whose declared `mode` is `pipeline`. It is not
 terminal: the result has not arrived, so nothing downstream may treat it as settled.
+
+**Several stages of one submission may all be `[>]`, on the same ARN.** That was the reason
+`[>]` is uncapped, and for as long as it existed `plan-lint.py` refused it: stage 6 `[>]`
+beside stage 5 `[>]` read as an unsettled prerequisite. So only the first stage of a Pipeline
+could be marked submitted, the rest sat at `[ ]` while they ran, and they later reached `[x]`
+without ever having been `[>]`. A `[>]` prerequisite now passes when it names the same
+execution — that Pipeline's own graph enforces the order. On different executions the rule
+still holds.
+
+### Following the run through: `poll.py`
+
+The `poll` directive used to read "check the execution named in the task, then report its
+outcome" — no command, no cadence, nothing about what to do with the answer. So whether a run
+followed its own submission was the agent's call, and a user of this power described the
+result: a stage ends with a job submitted and a pointer to the console, and the person who
+asked for the outcome has to go and find it.
+
+```bash
+python3 $S/poll.py --plan PLAN.md --task 5              # the execution task 5 names
+python3 $S/poll.py --execution <endpoint ARN>           # stage 14, which is inline
+```
+
+| Verdict | Exit | What it prints |
+|---|---|---|
+| `SUCCEEDED` | 0 | the `report.py … --state x` command for every task sharing the execution, with its artefact and recorded `--compute` |
+| `FAILED` | 1 | the execution's reason, each failed step with its own reason, and the last lines of that job's CloudWatch log |
+| `STOPPED` | 1 | that resubmitting is the user's call, not yours |
+| `RUNNING` | 3 | the same command again, and "in this turn" |
+| refused | 2 | no ARN, the wrong partition, credentials that cannot see the run, a status with no reading |
+
+It waits in **segments**, 20 minutes by default, because a single agent command has a ceiling
+and a training job does not care; the caller runs it again on `RUNNING`. The region comes from
+the ARN, the profile from the plan's `AWS_PROFILE:` line. It writes nothing — not the plan, not
+the ledger — and against AWS it only describes, lists, and tails logs. The CLI it calls is the
+one on `PATH`, which is also how `scripts/trial-poll.py` tests it: a stand-in `aws` answering
+from a state file, so every rule below runs offline.
+
+**A FailStep is a gate refusing, not a crash.** When the quality gate inside a Pipeline says no,
+the execution ends `Failed` while the stages before it did exactly what they should. `poll.py`
+says so, and `report.py --state x --step <names>` records those stages against their own steps.
+The gate's stage is `[!]`, as it would be anywhere else.
+
+### `report.py` reads the run, rather than the claim
+
+Moving a task off `[>]` used to ask the agent what had happened and take the answer on trust. An
+artefact on disk did not close the gap — it can come from an earlier run. Now, at the moment of
+the report, `report.py` describes the execution itself:
+
+- still running: **no state change at all**, `[R]` included. A run cannot stop being tracked
+  while it is still billing; if it has to end early, the user stops it and it reads `Stopped`.
+- `[x]`: the run succeeded, or `--step` names this stage's steps and each succeeded.
+- anything else: allowed once the run has ended, with `remote: <status>` written beside the
+  claim. The failure reason goes to the ledger, not the plan — free text from a service does
+  not belong inside a line whose markers and fields are parsed.
 
 `[?]` and `[R]` are not decoration. `[?]` is where a human approval sits by design;
 `[R]` is where a failed quality gate puts you. Written as `[-]`, "someone is working on

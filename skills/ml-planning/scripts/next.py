@@ -261,7 +261,33 @@ def compute_gate(header: dict, stages_doc: dict, stage: str | None) -> dict | No
     }
 
 
-def choose(tasks, stages_doc, wanted: set[str], external: set[str], led: dict) -> dict:
+def execute_do(spec: dict) -> str:
+    """What "do the work" means once the work runs somewhere else.
+
+    A pipeline-mode stage ends at a submission, and a submission is the point where a run is
+    most tempted to stop: something is visibly happening, and the console will show it. So the
+    directive says what comes after the submit -- record it as `[>]`, then keep going in the
+    same turn -- rather than leaving that to be inferred. The one inline stage that bills is
+    the endpoint, which also takes minutes to come up and gets the same instruction.
+    """
+    if spec.get("mode") == "pipeline":
+        return (
+            "do the work. Submitting it is not finishing it: once the API returns, report "
+            "[>] with --execution <the ARN it returned> and run next.py again before ending "
+            "that turn -- it dispatches `poll`, which waits for the outcome. Do not end a turn "
+            "on a submission and a console link; the user asked for the result."
+        )
+    if spec.get("billable"):
+        return (
+            "do the work, then report it. If it stands up an endpoint, wait for it in this "
+            f"turn -- python3 {HERE / 'poll.py'} --execution <endpoint ARN> -- and run the "
+            "smoke request before reporting; InService alone is not a deployment."
+        )
+    return "do the work, then report it"
+
+
+def choose(tasks, stages_doc, wanted: set[str], external: set[str], led: dict,
+           plan: Path | str = "PLAN.md") -> dict:
     """Pick the one thing to do next, or refuse and say what is in the way."""
     lint_mod = _load_sibling("plan-lint.py")
     terminal = lint_mod.TERMINAL
@@ -292,16 +318,39 @@ def choose(tasks, stages_doc, wanted: set[str], external: set[str], led: dict) -
 
     # 2. Work already in hand outranks new work, in a fixed order: something local and
     #    unfinished, then something remote and unresolved, then a question outstanding.
-    for marker, action, why, do in (
-        ("[-]", "finish", "it is marked in progress locally, and at most one task may be",
-         "complete it and report, or move it off [-] if it stalled"),
-        ("[>]", "poll", "it was submitted to a remote executor and its result has not landed",
-         "check the execution named in the task, then report its outcome"),
-    ):
-        hits = [t for t in sorted(tasks, key=lambda t: t.num) if t.marker == marker]
-        if hits:
-            t = hits[0]
-            return {"action": action, "task": t.num, "stage": t.stage, "why": why, "do": do}
+    hits = [t for t in sorted(tasks, key=lambda t: t.num) if t.marker == "[-]"]
+    if hits:
+        t = hits[0]
+        return {"action": "finish", "task": t.num, "stage": t.stage,
+                "why": "it is marked in progress locally, and at most one task may be",
+                "do": "complete it and report, or move it off [-] if it stalled"}
+
+    # A submission is not a result. This directive used to say "check the execution named in
+    # the task" and stop there -- no command, no cadence, no word on what to do with the answer
+    # -- so following a run through was the agent's own call, and the pattern a user described
+    # was the one that leaves: submit, point at the console, end the turn. It now names the
+    # command, and poll.py's own output carries the rest: what each verdict means and what to
+    # run next, including "again, in this turn" when the run is still going.
+    hits = [t for t in sorted(tasks, key=lambda t: t.num) if t.marker == "[>]"]
+    if hits:
+        t = hits[0]
+        return {
+            "action": "poll",
+            "task": t.num,
+            "stage": t.stage,
+            "remote": t.execution or "(no ARN recorded; poll.py refuses until the task names one)",
+            "why": "it was submitted to a remote executor and its result has not landed",
+            "do": (
+                f"python3 {HERE / 'poll.py'} --plan {plan} --task {t.num}\n"
+                "             It waits up to 20 minutes per call and ends SUCCEEDED, FAILED, "
+                "STOPPED or RUNNING,\n"
+                "             each with the command to run next. Give the call a timeout "
+                "above its --wait-min\n"
+                "             (or lower --wait-min to fit your harness). On RUNNING, run it "
+                "again."
+            ),
+            "stay": True,
+        }
 
     open_q = [t for t in sorted(tasks, key=lambda t: t.num) if t.marker == "[?]"]
     if open_q:
@@ -342,7 +391,7 @@ def choose(tasks, stages_doc, wanted: set[str], external: set[str], led: dict) -
             "decides": spec.get("user_decides") or [],
             "why": f"lowest-numbered unsettled task whose prerequisites {reqs or '(none)'} "
                    "are all settled",
-            "do": "do the work, then report it",
+            "do": execute_do(spec),
         }
 
     outstanding = [t for t in tasks if t.marker not in terminal and t.stage in wanted]
@@ -384,9 +433,18 @@ def render(d: dict, n: int) -> str:
     rows = [("build", build_fingerprint()),
             ("task", d.get("task")), ("stage", d.get("stage")), ("skill", d.get("skill")),
             ("execution", d.get("execution")), ("mode", d.get("mode")),
-            ("produces", d.get("produces"))]
+            ("produces", d.get("produces")), ("remote", d.get("remote"))]
     body = "\n".join(f"  {k+':':<11}{v}" for k, v in rows if v is not None)
     tail = f"\n  why:       {d['why']}\n  do:        {d['do']}"
+    if d.get("stay"):
+        # The mirror image of DECIDE FIRST. That one says stop, because the next move is the
+        # user's. This one says keep going, because the next move is still yours: the user
+        # asked for a result, and a submission is not one.
+        tail += ("\n  STAY IN THIS TURN — the result is still yours to fetch:\n"
+                 "    Keep calling poll.py until it prints SUCCEEDED, FAILED or STOPPED, then "
+                 "report and tell\n    the user the outcome in the conversation. Do not end "
+                 "the turn with a console link.\n    Stop early only if the user tells you "
+                 "to; then give them the ARN and say next.py resumes here.")
     decides = d.get("decides") or []
     if decides:
         # Named BEFORE the work, not refused after it. Every one of these already had a refusal on
@@ -500,7 +558,7 @@ def main() -> int:
                 f"{LEDGER_NAME} to restart the ledger from where the plan now stands."
             )
 
-        d = choose(tasks, stages_doc, wanted, external, led)
+        d = choose(tasks, stages_doc, wanted, external, led, plan)
         # A billable stage is not dispatched until its cost is authorised. Checked here rather
         # than inside choose(), because the answer depends on the plan header and the point is to
         # stop the spend BEFORE it happens rather than to report it afterwards.

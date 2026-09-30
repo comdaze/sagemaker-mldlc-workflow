@@ -19,6 +19,11 @@ produces is not on disk. That last one is the one worth naming: a run marked fiv
 complete, and the reason the plan passed was that nothing compared the claim to the
 workspace.
 
+AND A CLAIM ABOUT A REMOTE RUN IS READ FROM THE RUN. `[>]` must name an execution that
+SageMaker can describe; a task leaves `[>]` only once that run has ended; and `[x]` needs it to
+have Succeeded. The status comes from poll.py's reader at the moment of the report, not from
+the agent's account of it.
+
 THIRD, WORKING OUT OF ORDER IS RECORDED, NOT BLOCKED. A report for a task other than the
 dispatched one is accepted when the graph permits it, and the ledger keeps a count. The
 distinction is deliberate and matches how this power classifies its own constraints: a
@@ -32,6 +37,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -148,8 +154,9 @@ def validate(state: str, spec: dict, a, stage: str) -> list[str]:
                 "hand the state is [-]."
             )
         if not a.execution:
-            raise Refusal("[>] needs --execution naming the run. An id that exists can be "
-                          "checked later; one that does not was invented.")
+            raise Refusal("[>] needs --execution: the ARN the API returned. It is described "
+                          "before anything is recorded, because one that does not exist was "
+                          "never submitted.")
         fields.append(f"execution: {a.execution}")
 
     elif state == "!":
@@ -429,6 +436,148 @@ def check_permission(task, tasks, header: dict, stages_doc: dict, state: str,
     return fields
 
 
+# ---------------------------------------------------------------- the remote side of [>]
+
+STEP_NAME_RE = r"[A-Za-z0-9._-]+"
+
+
+def _poll():
+    return _sibling("poll.py")
+
+
+def _remote(poll, arn: str, header: dict, a):
+    """Read one snapshot of `arn`, with every poll-side refusal re-raised as ours."""
+    try:
+        target = poll.parse_arn(arn)
+        poll.check_partition(target, header)
+        return target, poll.read(target, poll.resolve_profile(a.profile, header))
+    except poll.Refusal as exc:
+        raise Refusal(str(exc)) from exc
+
+
+def leave_remote(task, header: dict, a, plan: Path) -> tuple[list[str], dict | None]:
+    """A task leaves `[>]` only once its run has ended, and reaches `[x]` only if it worked.
+
+    `[>]` used to be a state with no exit condition anyone read. Moving a task off it asked the
+    agent what had happened and took the answer on trust, so `[x]` after a submission meant
+    "the agent says the run succeeded" -- and nothing distinguished that from a run still going,
+    or one that had failed an hour earlier while someone was looking at the console. The
+    workspace check behind `[x]` did not close it: an artefact can come from an earlier run.
+
+    So the status is read here, from SageMaker, at the moment of the claim:
+
+      - still running (or a status nobody has a reading for): no state change at all. A run
+        cannot stop being tracked while it is still going, and still billing. Stopping it is
+        allowed -- with stop-*, after which it reads Stopped and this passes.
+      - `[x]`: the run must have Succeeded. The one exception is the FailStep case: a quality
+        gate inside the Pipeline refused, so the execution is Failed while the stages before
+        the gate did exactly what they should. `--step` names this stage's own steps, and each
+        must read Succeeded; they are recorded in the plan, so the substitution is visible.
+      - anything else ([R], [!], [~], a resubmission as a new [>]): allowed once terminal, and
+        the status is recorded beside the claim.
+    """
+    if task.marker != "[>]":
+        if a.step:
+            raise Refusal(
+                f"--step says which of a Pipeline's steps stand for this stage, and that only "
+                f"means something for a task leaving [>]. Task {task.num} is {task.marker}."
+            )
+        return [], None
+
+    arn = task.execution
+    if arn is None:
+        if a.execution and a.state != ">":
+            arn = a.execution
+        else:
+            raise Refusal(
+                f"task {task.num} is [>] but records no execution ARN, so how its run ended "
+                "cannot be read. Pass --execution <the ARN the API returned> with this report, "
+                "and it is checked before anything moves."
+            )
+    if a.state == ">" and (a.execution or "").strip() == arn:
+        raise Refusal(
+            f"task {task.num} is already [>] on {arn}. Nothing new to record; follow it with "
+            f"python3 {HERE / 'poll.py'} --plan {plan} --task {task.num}"
+        )
+
+    poll = _poll()
+    target, snap = _remote(poll, arn, header, a)
+    status, verdict = snap["status"], snap["verdict"]
+    wait_cmd = f"python3 {HERE / 'poll.py'} --plan {plan} --task {task.num}"
+
+    if verdict not in poll.TERMINAL:
+        known = "still " + str(status) if verdict == "RUNNING" else \
+            f"reporting {status!r}, which poll.py has no reading for"
+        raise Refusal(
+            f"task {task.num} is [>] and its run is {known}, so it cannot move to "
+            f"[{a.state}] yet. A run cannot stop being tracked while it is still going -- and "
+            f"still billing.\n  Wait for it: {wait_cmd}\n  If it has to end early, that is the "
+            "user's call: stop it (aws sagemaker stop-…), and report once it reads Stopped."
+        )
+
+    record = {"arn": arn, "status": status, "verdict": verdict,
+              "failure": snap.get("failure")}
+    if a.state != "x":
+        return [f"remote: {status}"], record
+
+    if a.step:
+        if target["kind"] != "pipeline-execution":
+            raise Refusal("--step applies to a Pipeline execution; this task's run is a "
+                          f"{target['kind']}, whose own status is the whole answer.")
+        names = [n.strip() for n in ",".join(a.step).split(",") if n.strip()]
+        bad = [n for n in names if not re.fullmatch(STEP_NAME_RE, n)]
+        if bad or not names:
+            raise Refusal(f"step names must match {STEP_NAME_RE}; got {bad or names}")
+        by = {s["name"]: s for s in snap["steps"]}
+        table = "  ".join(f"{s['name']}={s['status']}" for s in snap["steps"]) or "(none)"
+        missing = [n for n in names if n not in by]
+        failed = [f"{n}={by[n]['status']}" for n in names if n in by
+                  and by[n]["verdict"] != "SUCCEEDED"]
+        if missing or failed:
+            raise Refusal(
+                f"--step names steps that do not stand for a finished stage: "
+                + (f"not in this execution: {', '.join(missing)}. " if missing else "")
+                + (f"not Succeeded: {', '.join(failed)}. " if failed else "")
+                + f"\n  The execution's steps: {table}"
+            )
+        record["steps"] = names
+        return [f"remote: {status} (steps {','.join(names)} Succeeded)"], record
+
+    if verdict != "SUCCEEDED":
+        steps = "  ".join(f"{s['name']}={s['status']}" for s in snap["steps"])
+        raise Refusal(
+            f"task {task.num}'s run ended {status}"
+            + (f": {snap['failure']}" if snap.get("failure") else "")
+            + (f"\n  steps: {steps}" if steps else "")
+            + f"\n  [x] asserts the run worked, and SageMaker says it did not. Report [R], and "
+              f"tell the user what failed -- {wait_cmd} --wait-min 0 prints the failing step "
+              "and its log tail.\n  If the run ended at a FailStep -- a gate in the Pipeline "
+              "refusing -- and this stage's own steps succeeded, pass --step <those step "
+              "names> and they are checked instead."
+        )
+    return [f"remote: {status}"], record
+
+
+def confirm_submitted(header: dict, a) -> dict:
+    """A `[>]` has to name a run that exists, read from SageMaker rather than asserted.
+
+    The old refusal said "an id that exists can be checked later; one that does not was
+    invented" -- and then checked nothing, so `--execution arn:fake` passed. Now the ARN must
+    parse, sit in the plan's partition, and describe successfully with the credentials the plan
+    names. That is also the earliest moment a wrong `AWS_PROFILE:` can surface, which is
+    better than the first poll twenty minutes later.
+    """
+    poll = _poll()
+    target, snap = _remote(poll, a.execution, header, a)
+    if target["kind"] == "endpoint":
+        raise Refusal(
+            "an endpoint is not an execution a stage waits on; it is what stage 14 stands up, "
+            "inline. Wait for it with poll.py --execution <endpoint ARN> and report the stage "
+            "once the smoke request passes."
+        )
+    return {"arn": a.execution, "status": snap["status"], "verdict": snap["verdict"]}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Record one step's outcome in PLAN.md.")
     ap.add_argument("--task", type=int, required=True)
@@ -451,6 +600,13 @@ def main() -> int:
         help="for a hard-hold stage reported [x]: the values that came from the user, written "
              "as they will actually be used (bucket, role, prefix, account)",
     )
+    ap.add_argument(
+        "--step", action="append",
+        help="for a [>] task reported [x] whose Pipeline ended at a FailStep: this stage's own "
+             "step names, each of which must read Succeeded; repeatable or comma-separated",
+    )
+    ap.add_argument("--profile",
+                    help="AWS profile for reading the run; defaults to PLAN.md's AWS_PROFILE line")
     a = ap.parse_args()
 
     try:
@@ -477,7 +633,17 @@ def main() -> int:
                           "declare")
 
         extra = check_permission(task, tasks, header, stages_doc, a.state, a)
-        fields = validate(a.state, spec, a, stage) + extra
+        # How the run ended outranks what is on disk, so it is asked before validate(): a run
+        # still going explains a missing artefact better than "no artefact" does.
+        remote_fields, remote = leave_remote(task, header, a, plan)
+        # remote_fields first: on a resubmission they describe the OLD run, and must read as
+        # closing it before the new `execution:` opens the next one.
+        fields = remote_fields + validate(a.state, spec, a, stage) + extra
+        # After validate(), so the class rules -- [>] on an inline stage, [>] with no
+        # --execution -- answer first and without a network call.
+        if a.state == ">":
+            remote = {"submitted": confirm_submitted(header, a),
+                      **({"replaced": remote} if remote else {})}
         gate_ran = run_gate(spec, stage, a.artifact or [], a.artifacts, plan) \
             if a.state == "x" else None
         updated = rewrite(original, a.task, a.state, fields, lint_mod)
@@ -502,10 +668,13 @@ def main() -> int:
             header.get("PRESET", (0, None))[1], new_tasks
         )
         led["dispatched"] = None
-        led.setdefault("reports", []).append(
-            {"task": a.task, "state": a.state, "stage": stage, "at": now(),
-             "off_dispatch": off, "gate": gate_ran}
-        )
+        entry = {"task": a.task, "state": a.state, "stage": stage, "at": now(),
+                 "off_dispatch": off, "gate": gate_ran}
+        if remote:
+            # The plan carries the status word only; the reason lives here, because free text
+            # from a service must not land inside a line whose markers and fields are parsed.
+            entry["remote"] = remote
+        led.setdefault("reports", []).append(entry)
         nxt.save_ledger(ledger, led)
 
         print(f"RECORDED  task {a.task} -> [{a.state}]  (stage {stage}, "
